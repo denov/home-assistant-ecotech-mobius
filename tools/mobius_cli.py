@@ -17,15 +17,20 @@ import logging
 import os
 from pathlib import Path
 import sys
+import types
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# Load protocol.py and client.py (HA-free) as package "mobius" without running the
+# integration's __init__.py, which imports Home Assistant.
+_package = types.ModuleType("mobius")
+_package.__path__ = [str(Path(__file__).resolve().parents[1] / "custom_components" / "mobius")]
+sys.modules.setdefault("mobius", _package)
 
 from bleak_esphome import APIConnectionManager  # noqa: E402
 import habluetooth  # noqa: E402
 from habluetooth import BluetoothManager, HaBleakClientWrapper  # noqa: E402
 
-from custom_components.mobius import protocol as p  # noqa: E402
-from custom_components.mobius.client import MobiusClient  # noqa: E402
+from mobius import protocol as p  # noqa: E402
+from mobius.client import MobiusClient  # noqa: E402
 
 READ_ATTRS = [
     p.Attr.NAME,
