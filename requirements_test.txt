@@ -1,1 +1,9 @@
 pytest-homeassistant-custom-component
+# Home Assistant's bluetooth and usb components, which the tests load
+aiousbwatcher
+serialx
+bleak-retry-connector
+bluetooth-adapters
+bluetooth-auto-recovery
+bluetooth-data-tools
+habluetooth
