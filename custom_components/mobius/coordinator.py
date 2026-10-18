@@ -66,6 +66,8 @@ class DeviceState:
     operation_mode: int | None = None
     scene: SceneState | None = None
     physical: dict[int, int] = field(default_factory=dict)
+    # lights: VisualID -> intensity in tenths of a percent (1000 = 100 %)
+    intensity: dict[int, int] = field(default_factory=dict)
     # time.monotonic() of the read; a reading kept through failed polls keeps its old time
     read_at: float = 0.0
 
@@ -243,6 +245,14 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
         else:
             if (v := pv.get(p.Attr.PHYSICAL_VALUES)) is not None:
                 state.physical = {i: p.i32(b) for i, b in v.items.items() if len(b) >= 4}
+        if state.is_light:  # pumps reject Intensity, so it stays out of the shared batch
+            try:
+                iv = await client.get_attrs([(p.Attr.INTENSITY, 0, 0xFFFF)], target_ipv6=target)
+            except p.ProtocolError as err:
+                _LOGGER.debug("%s: no intensity (%s)", adv.serial, err)
+            else:
+                if (v := iv.get(p.Attr.INTENSITY)) is not None:
+                    state.intensity = {i: p.u16(b) for i, b in v.items.items() if len(b) >= 2}
         return state
 
     async def _read_tank(

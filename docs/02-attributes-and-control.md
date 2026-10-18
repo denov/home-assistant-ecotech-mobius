@@ -37,7 +37,9 @@ Some constants in the decompile are aliased to unrelated library constants (e.g.
 | 802 | FeedModeReturnDelay | pumps |
 | 1001 | NetworkedThreadDevices | 28-byte elements, one per mesh device (see below) |
 | 1005 | MeshLocalAddresses | 16-byte IPv6 elements |
-| 1500 | Intensity | lights |
+| 901 | SupportedColorChannels | lights: one element per channel, u8 VisualID |
+| 1500 | Intensity | lights: u16 per channel, element index = VisualID, tenths of a percent (see below) |
+| 1504 | MaxPower | lights: i32 per channel, element index = VisualID |
 | 1511 | PuckTemperature | lights |
 
 `PhysicalValues` element indices (`M.PhysicalValues`): 1 DriverTemperature, 2 MotorTemperature, 3 ClusterTemperature, 4 MotorPower, 5 MotorRPM, 6 BatteryVoltage, 7 InputVoltage, 8 InternalTemperature, 9 FanSpeed, 11 GallonsPerHour, 12 SupplyCurrent, 14 ModuleTemperature, 15 MotorSpinning, 16 Cluster2Temperature. Each value is an i32 LE (`c2/comm/model/MotorPower.java`). **Units are unconfirmed** and need checking against a capture.
@@ -132,3 +134,19 @@ Tank panId `0x405f`, group 2: 2 × VorTech MP40w G3 QD (model 42), 3 × model 19
 - On the test tank, the list from one MP40 held all 6 devices, including a Vectra L2 (model 149) that no proxy could hear over BLE.
 - **Relayed reads are fast.** Through one connection, the state batch plus PhysicalValues took 0.3–0.5 s per device. A direct BLE connection takes ~2 s per device.
 - The Vectra L2 reports PrimitiveType 5 (VectraV1) and OperationMode 32 (ConstantSpeed). PhysicalValues: motor power (127 W), RPM, temperatures, input voltage, battery 0 V and GallonsPerHour 0.
+
+### Light channels (2026-10-18)
+
+Read from a model 195 Radion through the mesh:
+
+- **`SupportedColorChannels` (901):**
+  - Green, WarmWhite, CoolWhite, Red, Violet, UV, RoyalBlue, Blue, MoonlightBlue, MoonlightWhite and Brightness.
+  - Plus ids 100 and 101, which aren't in `M.VisualID`.
+- **`Intensity` (1500):**
+  - One u16 per channel; the **element index is the VisualID**. Every supported colour channel is in it, moonlight (31, 32) included (0 in daytime).
+  - Units are tenths of a percent, so 1000 = 100 %. Hyperdrive allows up to 2000 (`SimpleEditLightingFragment`: shown as `value / 10` %).
+  - At 11:30 local time: blues/UV/violet 770 (77.0 %), whites/green/red 128–129 (12.9 %).
+- **`MaxPower` (1504):** i32 per channel, indexed by VisualID (e.g. CoolWhite 45600, Moonlight 500). Not used yet.
+- A pump answers 1500 with `UNSUPPORTED_ATTRIBUTE`, so read it from lights only, outside the shared batch.
+
+`M.VisualID`: Brightness 1, CoolWhite 16, Blue 17, RoyalBlue 18, Green 19, Red 20, UV 21, WarmWhite 22, Violet 23, DeepBlue 24, DeepRed 25, NeutralWhite 26, Yellow 27, Amber 28, FarRed 29, Moonlight 30, MoonlightWhite 31, MoonlightBlue 32, Cyan 33, Lime 34, BlueAndWhite 35, RedAndWhite 36, UV_PLUS 37, White 38.

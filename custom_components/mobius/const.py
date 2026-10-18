@@ -78,3 +78,31 @@ PHYSICAL_SENSORS: dict[int, tuple[str, str | None, str | None]] = {
     PhysicalValue.MODULE_TEMPERATURE: ("module_temperature", UnitOfTemperature.CELSIUS, "temperature"),
     PhysicalValue.CLUSTER2_TEMPERATURE: ("cluster2_temperature", UnitOfTemperature.CELSIUS, "temperature"),
 }
+
+# Light colour channels (M.VisualID) -> sensor key suffix. Brightness (1) is a master
+# dimmer, not a colour, so it gets no sensor.
+CHANNELS: dict[int, str] = {
+    16: "cool_white",
+    17: "blue",
+    18: "royal_blue",
+    19: "green",
+    20: "red",
+    21: "uv",
+    22: "warm_white",
+    23: "violet",
+    24: "deep_blue",
+    25: "deep_red",
+    26: "neutral_white",
+    27: "yellow",
+    28: "amber",
+    29: "far_red",
+    30: "moonlight",
+    31: "moonlight_white",
+    32: "moonlight_blue",
+    33: "cyan",
+    34: "lime",
+    35: "blue_and_white",
+    36: "red_and_white",
+    37: "uv_plus",
+    38: "white",
+}

@@ -352,3 +352,22 @@ async def test_next_strongest_device_bridges_when_the_first_is_down(coordinator,
 def test_mesh_requests_fail_fast():
     from custom_components.mobius import client
     assert client.COAP_TIMEOUT <= 5, "relayed reads answer in ~0.5 s; a dead device must not stall a poll"
+
+
+async def test_lights_report_their_channel_intensities(coordinator, tank):
+    connect = tank.connect
+
+    async def with_a_light(cls, ble_device, name, **kw):
+        dev = await connect(cls, ble_device, name, **kw)
+        if ble_device.address == "AA:AA":
+            dev.attrs[p.Attr.PRIMITIVE_TYPE] = b"\x01"  # VisualV1
+            dev.attrs[p.Attr.INTENSITY] = [struct.pack("<H", 770)]  # one channel at element index 0 in the fake
+        return dev
+
+    with patch(f"{MOD}.establish_connection", with_a_light):
+        data = await coordinator._async_update_data()
+    assert data.devices["SERIAL_A"].intensity == {0: 770}
+    assert data.devices["SERIAL_B"].intensity == {}
+    pump = next(d for d in tank.connections if p.Attr.INTENSITY not in d.attrs)
+    asked = {struct.unpack_from("<H", f.payload)[0] for f in pump.received if f.op == p.Op.GET_ATTR_V2}
+    assert p.Attr.INTENSITY not in asked, "pumps reject Intensity; asking would cost a failed request"

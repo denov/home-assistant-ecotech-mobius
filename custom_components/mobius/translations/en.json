@@ -78,6 +78,75 @@
       },
       "motor_energy": {
         "name": "Energy"
+      },
+      "channel_cool_white": {
+        "name": "Cool white"
+      },
+      "channel_blue": {
+        "name": "Blue"
+      },
+      "channel_royal_blue": {
+        "name": "Royal blue"
+      },
+      "channel_green": {
+        "name": "Green"
+      },
+      "channel_red": {
+        "name": "Red"
+      },
+      "channel_uv": {
+        "name": "UV"
+      },
+      "channel_warm_white": {
+        "name": "Warm white"
+      },
+      "channel_violet": {
+        "name": "Violet"
+      },
+      "channel_deep_blue": {
+        "name": "Deep blue"
+      },
+      "channel_deep_red": {
+        "name": "Deep red"
+      },
+      "channel_neutral_white": {
+        "name": "Neutral white"
+      },
+      "channel_yellow": {
+        "name": "Yellow"
+      },
+      "channel_amber": {
+        "name": "Amber"
+      },
+      "channel_far_red": {
+        "name": "Far red"
+      },
+      "channel_moonlight": {
+        "name": "Moonlight"
+      },
+      "channel_moonlight_white": {
+        "name": "Moonlight white"
+      },
+      "channel_moonlight_blue": {
+        "name": "Moonlight blue"
+      },
+      "channel_cyan": {
+        "name": "Cyan"
+      },
+      "channel_lime": {
+        "name": "Lime"
+      },
+      "channel_blue_and_white": {
+        "name": "Blue and white"
+      },
+      "channel_red_and_white": {
+        "name": "Red and white"
+      },
+      "channel_uv_plus": {
+        "name": "UV+"
+      },
+      "channel_white": {
+        "name": "White"
       }
     },
     "binary_sensor": {

@@ -29,13 +29,14 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
   - `operation_state` and `error` (diagnostic),
   - a `problem` binary sensor,
   - one sensor per supported PhysicalValues element the device reports (see `PHYSICAL_SENSORS`).
+  - **Lights:** one `channel_<name>` sensor per colour channel the light reports in `Intensity` (e.g. Royal Blue, UV, Cool White), in % with one decimal. Brightness and unknown ids get no sensor. These sensors show the colour mix the light is running right now.
   - **Battery voltage** is created only once it reads above 0 V. Pumps without a battery backup attached report 0 V.
   - Devices that report motor power also get an `energy` sensor (below).
 - Entities are added when a poll first reports their device or value. They are never removed while the entry is loaded.
 
 ## Polling
 
-- The tank is polled every 60 s. Reading a device means one batched state read and one PhysicalValues read. If the device rejects the batch, the state attributes are read one by one.
+- The tank is polled every 60 s. Reading a device means one batched state read and one PhysicalValues read; lights (PrimitiveType 1) also get one `Intensity` read. If the device rejects the batch, the state attributes are read one by one.
 - **Mesh first, then direct.** Relayed reads take ~0.5 s per device and a direct connection ~2 s (measured, doc 02), so the mesh is the default.
   1. **Bridge.** Connect to the strongest advertising device of the tank; if that fails, try the next strongest. Read the bridge itself directly.
   2. **Mesh.** In the same connection, read the mesh list (`NetworkedThreadDevices`). Read every other listed device through the relay. This reaches devices no proxy can hear, such as a return pump under the stand.

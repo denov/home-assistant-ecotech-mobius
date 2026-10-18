@@ -4,13 +4,13 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
-from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfTime
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfEnergy, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import protocol as p
-from .const import OPERATION_MODES, PHYSICAL_SENSORS
+from .const import CHANNELS, OPERATION_MODES, PHYSICAL_SENSORS
 from .entity import MobiusConfigEntry, MobiusDeviceEntity, MobiusRuntimeData, MobiusTankEntity
 
 ERROR_STATES = {
@@ -32,6 +32,11 @@ def physical_sensor_indexes(physical: dict[int, int]) -> list[int]:
     ]
 
 
+def channel_sensor_ids(intensity: dict[int, int]) -> list[int]:
+    """Colour channels a light reports, in VisualID order."""
+    return sorted(i for i in intensity if i in CHANNELS)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: MobiusConfigEntry, async_add_entities: AddEntitiesCallback):
     data = entry.runtime_data
     async_add_entities([TankSceneSensor(data), TankSceneRemainingSensor(data)])
@@ -50,6 +55,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: MobiusConfigEntry, async
             for index in physical_sensor_indexes(state.physical):
                 key = PHYSICAL_SENSORS[index][0]
                 wanted.append((key, lambda s=serial, i=index: PhysicalSensor(data, s, i)))
+            for channel in channel_sensor_ids(state.intensity):
+                key = f"channel_{CHANNELS[channel]}"
+                wanted.append((key, lambda s=serial, c=channel: ChannelSensor(data, s, c)))
             if p.PhysicalValue.MOTOR_POWER in state.physical:
                 wanted.append(("motor_energy", lambda s=serial: MotorEnergySensor(data, s)))
             for key, factory in wanted:
@@ -146,6 +154,25 @@ class PhysicalSensor(MobiusDeviceEntity, SensorEntity):
     def native_value(self) -> int | None:
         s = self.device_state
         return s.physical.get(self._index) if s else None
+
+
+class ChannelSensor(MobiusDeviceEntity, SensorEntity):
+    """How bright one colour channel of a light runs right now, in %."""
+
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+    _attr_icon = "mdi:led-on"
+
+    def __init__(self, data: MobiusRuntimeData, serial: str, channel: int) -> None:
+        super().__init__(data, serial, f"channel_{CHANNELS[channel]}")
+        self._channel = channel
+
+    @property
+    def native_value(self) -> float | None:
+        s = self.device_state
+        value = s.intensity.get(self._channel) if s else None
+        return value / 10 if value is not None else None
 
 
 class MotorEnergySensor(MobiusDeviceEntity, RestoreEntity, SensorEntity):
