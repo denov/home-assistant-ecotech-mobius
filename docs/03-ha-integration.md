@@ -33,6 +33,7 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
   - **Battery voltage** is created only once it reads above 0 V. Pumps without a battery backup attached report 0 V.
   - Devices that report motor power also get an `energy` sensor (below).
 - Entities are added when a poll first reports their device or value. They are never removed while the entry is loaded.
+- **Removing a device:** a pump or light that the last poll didn't report (e.g. it left the tank) can be deleted from its device page. One that's still reported can't be deleted, because it would come straight back. The tank device can't be deleted either.
 
 ## Polling
 
@@ -74,5 +75,6 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
 
 ## Known gaps
 
-- Radion OperationMode 50 and model 195 have no name in the app's enums. They show as `unknown_50` and "Radion (model 195)" until a capture identifies them.
+- Model 195 has no name in the app's enums (codename only), so it shows as "Radion (model 195)".
+- A Radion read over a direct connection reports OperationMode 50 (shown as `unknown_50`) instead of its real mode (docs/02). Lights are normally read through the mesh, which reports the real mode.
 - Vectra pumps are read-tested through the mesh only (a Vectra L2). Whether a Vectra reports flow is unknown: GallonsPerHour read 0.

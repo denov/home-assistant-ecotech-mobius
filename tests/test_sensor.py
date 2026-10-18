@@ -14,6 +14,7 @@ def test_battery_voltage_waits_for_a_battery():
 
 def test_mode_icon_shows_the_device_type():
     from types import SimpleNamespace
+
     from custom_components.mobius.coordinator import DeviceState, TankData
     from custom_components.mobius.sensor import ModeSensor
 
@@ -22,13 +23,15 @@ def test_mode_icon_shows_the_device_type():
     data = SimpleNamespace(coordinator=coordinator, tank_device_id="tank", tank_id="tank_405f", pan_id=0x405F)
     sensor = ModeSensor.__new__(ModeSensor)
     ModeSensor.__init__(sensor, data, adv.serial)
-    for primitive, icon in ((1, "mdi:light-flood-down"), (4, "mdi:waves"), (5, "mdi:pump"), (99, "mdi:help-circle-outline")):
+    icons = ((1, "mdi:light-flood-down"), (4, "mdi:waves"), (5, "mdi:pump"), (99, "mdi:help-circle-outline"))
+    for primitive, icon in icons:
         coordinator.data = TankData({adv.serial: DeviceState(adv.serial, "", adv, primitive=primitive)})
         assert sensor.icon == icon
 
 
 def test_light_channels_become_percent_sensors():
     from types import SimpleNamespace
+
     from custom_components.mobius.coordinator import DeviceState, TankData
     from custom_components.mobius.sensor import ChannelSensor, channel_sensor_ids
 

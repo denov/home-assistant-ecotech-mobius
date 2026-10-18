@@ -20,15 +20,19 @@ class MobiusRuntimeData:
 
     @property
     def tank_id(self) -> str:
-        return f"tank_{self.pan_id:04x}"
+        return tank_id(self.pan_id)
 
 
 type MobiusConfigEntry = ConfigEntry[MobiusRuntimeData]
 
 
-def tank_device(tank_id: str, pan_id: int) -> DeviceInfo:
+def tank_id(pan_id: int) -> str:
+    return f"tank_{pan_id:04x}"
+
+
+def tank_device(pan_id: int) -> DeviceInfo:
     return DeviceInfo(
-        identifiers={(DOMAIN, tank_id)},
+        identifiers={(DOMAIN, tank_id(pan_id))},
         name=f"Mobius tank {pan_id:04X}",
         manufacturer=MANUFACTURER,
         model="Mobius tank",
@@ -50,7 +54,7 @@ class MobiusTankEntity(CoordinatorEntity[MobiusCoordinator]):
         super().__init__(data.coordinator)
         self._attr_unique_id = f"{data.tank_id}_{key}"
         self._attr_translation_key = key
-        self._attr_device_info = tank_device(data.tank_id, data.pan_id)
+        self._attr_device_info = tank_device(data.pan_id)
 
 
 class MobiusDeviceEntity(CoordinatorEntity[MobiusCoordinator]):

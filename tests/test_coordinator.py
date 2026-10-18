@@ -1,8 +1,8 @@
 """MobiusCoordinator polls and commands, with only the BLE connection faked."""
 
 import asyncio
-import time
 import struct
+import time
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -170,7 +170,10 @@ def _info(address: str, manufacturer_data: dict[int, bytes]):
 
 
 def _scan_response(model: int, serial: str, pan: int) -> dict[int, bytes]:
-    raw = bytes([2, 0x02]) + struct.pack("<H", model) + b"\x00" + struct.pack("<iH", 0, pan) + serial.encode().ljust(17, b"\x00")
+    raw = (
+        bytes([2, 0x02]) + struct.pack("<H", model) + b"\x00" + struct.pack("<iH", 0, pan)
+        + serial.encode().ljust(17, b"\x00")
+    )
     return {int.from_bytes(raw[:2], "little"): raw[2:]}
 
 

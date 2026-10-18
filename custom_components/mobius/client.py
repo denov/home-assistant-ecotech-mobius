@@ -54,7 +54,6 @@ class MobiusClient:
         self._write_lock = asyncio.Lock()
         self.wide = True
         self.opcodes: bytes = b""
-        self.indications: asyncio.Queue[p.Frame] = asyncio.Queue(maxsize=100)
 
     @property
     def mtu(self) -> int:
@@ -62,7 +61,10 @@ class MobiusClient:
         return max(20, size - 3)
 
     async def start(self, opcodes: bytes | None = None) -> None:
-        """Enable notifications and pick the opcode variants; pass `opcodes` from an earlier connection to skip asking."""
+        """Enable notifications and pick the opcode variants.
+
+        Pass `opcodes` from an earlier connection to skip asking for them.
+        """
         await self._ble.start_notify(p.RX_DATA_UUID, self._on_rx_data)
         await self._ble.start_notify(p.RX_FINAL_UUID, self._on_rx_final)
         if opcodes is not None:
@@ -102,22 +104,13 @@ class MobiusClient:
             fut = self._coap_pending.pop(ind.token, None)
             if fut and not fut.done():
                 fut.set_result(inner)
-            else:
-                self._queue_indication(inner)
             return
         if frame.group == p.OpGroup.C2CI_CONFIRM and frame.op == p.Op.COAP_REQUEST:
             return  # local ack that the relay was queued; the answer comes as 0x1A
         fut = self._pending.pop((frame.group, frame.op, frame.msg_id), None)
         if fut and not fut.done():
             fut.set_result(frame)
-        else:
-            self._queue_indication(frame)
-
-    def _queue_indication(self, frame: p.Frame) -> None:
-        try:
-            self.indications.put_nowait(frame)
-        except asyncio.QueueFull:
-            pass
+        # anything else is unsolicited (e.g. a late answer after a retry): nothing waits for it
 
     # --- sending ------------------------------------------------------------
 

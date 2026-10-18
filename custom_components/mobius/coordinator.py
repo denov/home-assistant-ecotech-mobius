@@ -13,7 +13,6 @@ from typing import Any
 
 from bleak.exc import BleakError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
-
 from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -47,6 +46,8 @@ FIRST_ADVERT_WAIT_SECONDS = 40
 
 # connection failures in a row (poll or command) after which the radio path counts as down
 ABORT_AFTER_CONNECT_FAILURES = 2
+
+type Seen = bluetooth.BluetoothServiceInfoBleak
 
 CONNECT_ERRORS = (BleakError, TimeoutError, p.ProtocolError, EOFError)
 
@@ -187,7 +188,6 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
                 found[adv.serial] = (info, adv)
         return found
 
-
     async def _with_client(
         self, info: bluetooth.BluetoothServiceInfoBleak, action: Callable[[MobiusClient], Awaitable[Any]]
     ) -> Any:
@@ -256,7 +256,8 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
         return state
 
     async def _read_tank(
-        self, client: MobiusClient, info, adv: p.Advert, seen, devices: dict[str, DeviceState]
+        self, client: MobiusClient, info: Seen, adv: p.Advert, seen: dict[str, tuple[Seen, p.Advert]],
+        devices: dict[str, DeviceState],
     ) -> None:
         """Read the bridge directly, then every other mesh device through its relay (~0.5 s each vs ~2 s direct)."""
         devices[adv.serial] = await self._read_device(client, info.address, adv)
@@ -295,7 +296,7 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
         errors: dict[str, str] = {}
         tried = False
         # mesh first: one connection to the strongest device that takes one
-        for info, adv in sorted(seen.values(), key=lambda s: s[0].rssi, reverse=True)[:2]:
+        for info, adv in _strongest(seen):
             if self._path_down(tried):
                 break
             tried = True
@@ -328,7 +329,7 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
             raise UpdateFailed(f"Couldn't read any of {len(seen)} advertising Mobius devices")
         return TankData(devices)
 
-    def _keep_last(self, serial: str, last: dict[str, DeviceState], devices: dict[str, DeviceState], why) -> None:
+    def _keep_last(self, serial: str, last: dict[str, DeviceState], devices: dict[str, DeviceState], why: str) -> None:
         """Count a failed read; the last reading stands in until UNAVAILABLE_AFTER_FAILURES in a row."""
         failures = self._failures[serial] = self._failures.get(serial, 0) + 1
         _LOGGER.debug("%s: read failed (%d in a row): %s", serial, failures, why)
@@ -340,11 +341,10 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
         seen = self.advertised()
         if not seen:
             raise HomeAssistantError(f"Can't {what}: no device of this tank is in Bluetooth range")
-        candidates = sorted(seen.values(), key=lambda s: s[0].rssi, reverse=True)
         last_err: Exception | None = None
         sent = False
         async with self._lock:  # for all attempts, so poll reads can't slip in between
-            for info, _adv in candidates[:2]:
+            for info, _adv in _strongest(seen):
                 if self._path_down(last_err is not None):
                     break
                 try:
@@ -358,6 +358,11 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
         if not sent:
             raise HomeAssistantError(f"Couldn't {what}: {last_err}") from last_err
         await self.async_request_refresh()
+
+
+def _strongest(seen: dict[str, tuple[Seen, p.Advert]]) -> list[tuple[Seen, p.Advert]]:
+    """The two devices with the best signal: who to connect to for the whole tank."""
+    return sorted(seen.values(), key=lambda s: s[0].rssi, reverse=True)[:2]
 
 
 async def _broadcast(client: MobiusClient, action, data: TankData | None) -> None:

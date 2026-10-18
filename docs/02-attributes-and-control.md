@@ -101,7 +101,7 @@ Tank panId `0x405f`, group 2: 2 × VorTech MP40w G3 QD (model 42), 3 × model 19
 - **PhysicalValues returns several sparse blocks** in one response, e.g. MP40 indices 1–2, 4–7, 10–11. Units: °C, W, RPM, V, GPH.
   - MP40: driver 41 °C, motor 45 °C, 5–7 W, ~1500 RPM, input 31 V, ~2300–2650 GPH.
   - Radion: driver 55–59 °C, clusters 50–55 °C, module 75–79 °C, input 34–35 V.
-- **OperationMode:** MP40s report 34 (Reefcrest) and 37 (SyncSlave, the paired pump). Radions report **50**, which is not in `M.OperationMode` (open question).
+- **OperationMode:** MP40s report 34 (Reefcrest) and 37 (SyncSlave, the paired pump). Radions report **50**, which is not in `M.OperationMode`. **Resolved 2026-10-18:** a Radion reports 50 only while it is the device we're directly connected to over BLE. Read through the mesh at the same moment, it reports 2 (Schedule). Seen at the switch to mesh polls (18:20), and again when one light was read directly as a fallback (18:40, then Schedule on the next mesh read).
 - **Scenes:** `SceneTimeout` reads 3600 even with no scene active (`CurrentScene` = 0). Activity = `CurrentScene != 0 && SceneTimeout > 0`.
 - The light's `Name` attribute was blank; the pumps' was "MP40".
 - **GroupBitmap:** light `0x2000000000000003` (group 2 + sub-group 62), pump `0x03` (group 2).
