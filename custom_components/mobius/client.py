@@ -19,7 +19,8 @@ from . import protocol as p
 _LOGGER = logging.getLogger(__name__)
 
 DIRECT_TIMEOUT = 5.0
-COAP_TIMEOUT = 20.0
+# relayed reads answer in ~0.5 s (docs/02); the app waits 20 s, too long for a poll
+COAP_TIMEOUT = 5.0
 
 
 @dataclass(slots=True)
@@ -212,6 +213,12 @@ class MobiusClient:
     async def tank_group(self) -> int:
         values = await self.get_attrs([p.Attr.GROUP_BITMAP])
         return p.tank_group(p.u64(values[p.Attr.GROUP_BITMAP].elements[0]))
+
+    async def mesh_devices(self) -> list[p.MeshDevice]:
+        """The devices in this device's Thread mesh, itself included."""
+        values = await self.get_attrs([p.Attr.MESH_LOCAL_ADDRESSES, (p.Attr.NETWORKED_THREAD_DEVICES, 0, 0xFFFF)])
+        own = values[p.Attr.MESH_LOCAL_ADDRESSES].first
+        return p.parse_mesh_devices(values[p.Attr.NETWORKED_THREAD_DEVICES], own)
 
     async def scene_state(self, *, target_ipv6: bytes | None = None) -> SceneState:
         v = await self.get_attrs(

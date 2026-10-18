@@ -69,8 +69,23 @@ def _label(names: dict[int, str], value: int | None) -> str | None:
     return names.get(value, f"unknown_{value}")
 
 
+# PrimitiveType -> icon; HA's Material Design icons, so no EcoTech artwork is needed
+PRIMITIVE_ICONS = {
+    1: "mdi:light-flood-down",  # VisualV1: Radion
+    2: "mdi:pump",  # PumpV1
+    3: "mdi:beaker-outline",  # DoseV1
+    4: "mdi:waves",  # VorTechV1
+    5: "mdi:pump",  # VectraV1: return pump
+}
+
+
 class ModeSensor(MobiusDeviceEntity, SensorEntity):
-    _attr_icon = "mdi:waves"
+    """The device's mode; its icon tells lights, wave pumps and return pumps apart."""
+
+    @property
+    def icon(self) -> str:
+        s = self.device_state
+        return PRIMITIVE_ICONS.get(s.primitive if s else 0, "mdi:help-circle-outline")
 
     def __init__(self, data: MobiusRuntimeData, serial: str) -> None:
         super().__init__(data, serial, "mode")

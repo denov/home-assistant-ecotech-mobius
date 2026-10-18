@@ -328,6 +328,24 @@ def coap_unwrap(data: bytes) -> CoapIndication:
     return CoapIndication(bytes(data[:16]), token, code, ctype, bytes(data[25 : 25 + length]))
 
 
+@dataclass(slots=True, frozen=True)
+class MeshDevice:
+    """One NetworkedThreadDevices entry (docs/02): where to relay to, and who is there."""
+
+    ipv6: bytes
+    model_id: int
+    serial: str
+
+
+def parse_mesh_devices(value: AttrValue, own_ipv6: bytes) -> list[MeshDevice]:
+    """Mesh-local IPv6 = the mesh prefix (first 8 bytes of our own address) + the entry's interface id."""
+    return [
+        MeshDevice(own_ipv6[:8] + e[:8], struct.unpack_from("<H", e, 12)[0], text(e[14:28]))
+        for _i, e in sorted(value.items.items())
+        if len(e) >= 28 and any(e)
+    ]
+
+
 # --- values -------------------------------------------------------------------
 
 

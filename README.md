@@ -15,12 +15,13 @@ This custom integration talks directly to [EcoTech Marine](https://ecotechmarine
 - Energy dashboard: an **Energy** sensor (kWh) for each pump, counted from its motor power. Input voltage sensors keep long-term statistics. Radion lights don't report power, so they have no energy sensor.
 - Per tank: active scene, scene time remaining, and a Feed Mode sensor
 - Buttons: **Feed mode**, **All off**, **All on** and **Resume schedule**, sent to every device of the tank at once, like the scene tiles in the Mobius app
+- Reads the whole tank through **one** Bluetooth connection: the device nearest the proxy relays to the others over the tank's own mesh, so a pump under the stand or a light out of range is still read
 - Devices that drop out briefly keep their last reading; they go unavailable only after several failed reads in a row
 - Designed for HACS install
 
 ![History in Home Assistant: pump flow and power over a night, pump energy per day, and supply voltage of every device](https://raw.githubusercontent.com/denov/home-assistant-ecotech-mobius/main/docs/images/history.png)
 
-Tested with VorTech MP40w G3 QD pumps and current-generation Radion lights. Other Mobius devices should work, since they share the same protocol. Please open an issue with debug logs if one doesn't.
+Tested with VorTech MP40w G3 QD pumps, a Vectra L2 return pump and current-generation Radion lights. Other Mobius devices should work, since they share the same protocol. Please open an issue with debug logs if one doesn't.
 
 ## Requirements
 
@@ -29,7 +30,7 @@ Tested with VorTech MP40w G3 QD pumps and current-generation Radion lights. Othe
 
 ## Bluetooth connection
 
-Mobius devices only speak Bluetooth Low Energy (the Mobius cloud and Wi-Fi aren't used), so Home Assistant needs a Bluetooth radio within a few metres of the tank.
+Mobius devices only speak Bluetooth Low Energy (the Mobius cloud and Wi-Fi aren't used), so Home Assistant needs a Bluetooth radio within a few metres of the tank. **One device in range is enough**: the integration reads the rest through the tank's mesh, the way the Mobius app does.
 
 ### Option 1: an ESPHome Bluetooth proxy (recommended)
 
@@ -96,7 +97,7 @@ So when you've finished in the Mobius app, close it fully (swipe it away). Home 
 | What you see | What to check |
 |---|---|
 | The tank isn't offered | Is the proxy online in the ESPHome integration with `active: true`? Mobius devices appear as **MOBIUS** under **Settings** → **Bluetooth** → **Advertisement monitor**. Wait a few minutes for an active scan. |
-| One device is unavailable | Is the Mobius app open? Is that device powered and close enough to a proxy? Its signal (RSSI) is shown in the Advertisement monitor; around -80 dBm or weaker is too far. |
+| One device is unavailable | Is the Mobius app open? Is that device powered? Devices are read through the mesh, so it needn't be near the proxy, but it must be on the same tank in the Mobius app. |
 | Everything is unavailable | Is the proxy online? Move it closer, or add a second proxy on the other side of the tank. If the proxy is online and still sees the devices (Advertisement monitor) but nothing connects, press its **Restart** button. |
 | Buttons fail with "Couldn't …" | The same as above: no device of the tank could be reached in time. Try again once the app is closed. |
 

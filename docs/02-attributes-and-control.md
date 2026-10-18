@@ -35,7 +35,7 @@ Some constants in the decompile are aliased to unrelated library constants (e.g.
 | 700 | MotorSpeed | pumps |
 | 702 | FeedModeMaxSpeed | pumps |
 | 802 | FeedModeReturnDelay | pumps |
-| 1001 | NetworkedThreadDevices | list of devices in the mesh (TODO: decode) |
+| 1001 | NetworkedThreadDevices | 28-byte elements, one per mesh device (see below) |
 | 1005 | MeshLocalAddresses | 16-byte IPv6 elements |
 | 1500 | Intensity | lights |
 | 1511 | PuckTemperature | lights |
@@ -85,7 +85,7 @@ Send the Get frame inside a CoAP relay (`DE 19`) to the target's mesh-local IPv6
 1. The `DF 1A` source IPv6 byte order.
 2. `PhysicalValues` units (W? mW? RPM raw?).
 3. Whether the second u16 in the `CurrentScene` set is a duration override.
-4. `NetworkedThreadDevices` element layout.
+4. ~~`NetworkedThreadDevices` element layout~~ (decoded 2026-10-18, below).
 
 Resolved: the passcode (`PINCode` 109, u16) is an **app-side** gate only. The app reads it from the device and compares it locally (`c2/comm/model/PIN.java`, `c2development/mobius/settings/passcode/*`). Nothing is sent to unlock Set requests. The `superuser` reserved bit is only used for the serial-fixer and update-channel tools.
 
@@ -114,3 +114,21 @@ Tank panId `0x405f`, group 2: 2 × VorTech MP40w G3 QD (model 42), 3 × model 19
 - **Resume schedule:** `DE 18`, group 2, payload `6800 00 01 01 03` (OperationState = Schedule). The device answered status `00`. The next poll showed the scene inactive and the MP40s back on Reefcrest/SyncSlave.
 - Both reached the other pump through the mesh, which confirms that a single group-addressed set is enough for the whole tank.
 - The success reply carries 2 more bytes after the status (`00 ffff`). They aren't used yet.
+
+### Mesh device list (2026-10-18)
+
+`NetworkedThreadDevices` (1001) holds 30 elements of 28 bytes; unused ones are all zero. Read with index 0, count 0xFFFF.
+
+| bytes | field |
+|---|---|
+| 0–7 | interface id: the low 8 bytes of the device's mesh-local IPv6 |
+| 8–9 | u16, likely the Thread RLOC16 (e.g. `0x1fb0`). Not used |
+| 10–11 | always 0 so far |
+| 12–13 | model (u16 LE, `M.Model`) |
+| 14–27 | serial, 14 ASCII characters |
+
+- A device's mesh-local IPv6 is the first 8 bytes of the connected device's own `MeshLocalAddresses[0]` (the mesh prefix), followed by the interface id.
+- **The list includes the connected device itself.** A relayed request to yourself gets no answer: it times out (20 s, plus a retry). Read the connected device directly.
+- On the test tank, the list from one MP40 held all 6 devices, including a Vectra L2 (model 149) that no proxy could hear over BLE.
+- **Relayed reads are fast.** Through one connection, the state batch plus PhysicalValues took 0.3–0.5 s per device. A direct BLE connection takes ~2 s per device.
+- The Vectra L2 reports PrimitiveType 5 (VectraV1) and OperationMode 32 (ConstantSpeed). PhysicalValues: motor power (127 W), RPM, temperatures, input voltage, battery 0 V and GallonsPerHour 0.

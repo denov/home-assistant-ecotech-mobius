@@ -215,9 +215,12 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
         """Stop trying once something was tried and the last connects all failed."""
         return tried and self._connect_failures >= ABORT_AFTER_CONNECT_FAILURES
 
-    async def _read_device(self, client: MobiusClient, info, adv: p.Advert) -> DeviceState:
-        state = DeviceState(adv.serial, info.address, adv, read_at=time.monotonic())
-        values = await _get_tolerant(client, STATE_ATTRS)
+    async def _read_device(
+        self, client: MobiusClient, address: str, adv: p.Advert, target: bytes | None = None
+    ) -> DeviceState:
+        """Read one device: the connected one, or (with `target`) one the connected device relays to."""
+        state = DeviceState(adv.serial, address, adv, read_at=time.monotonic())
+        values = await _get_tolerant(client, STATE_ATTRS, target)
         if (v := values.get(p.Attr.NAME)) is not None:
             state.name = p.text(v.first)
         if (v := values.get(p.Attr.PRIMITIVE_TYPE)) is not None:
@@ -234,13 +237,33 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
         if all(a in values for a in scene_attrs):
             state.scene = SceneState(*(p.u16(values[a].first) for a in scene_attrs))
         try:
-            pv = await client.get_attrs([(p.Attr.PHYSICAL_VALUES, 0, 0xFFFF)])
+            pv = await client.get_attrs([(p.Attr.PHYSICAL_VALUES, 0, 0xFFFF)], target_ipv6=target)
         except p.ProtocolError as err:
             _LOGGER.debug("%s: no physical values (%s)", adv.serial, err)
         else:
             if (v := pv.get(p.Attr.PHYSICAL_VALUES)) is not None:
                 state.physical = {i: p.i32(b) for i, b in v.items.items() if len(b) >= 4}
         return state
+
+    async def _read_tank(
+        self, client: MobiusClient, info, adv: p.Advert, seen, devices: dict[str, DeviceState]
+    ) -> None:
+        """Read the bridge directly, then every other mesh device through its relay (~0.5 s each vs ~2 s direct)."""
+        devices[adv.serial] = await self._read_device(client, info.address, adv)
+        try:
+            mesh = await client.mesh_devices()
+        except (p.ProtocolError, TimeoutError) as err:
+            _LOGGER.debug("%s: no mesh list (%s)", adv.serial, err)
+            return
+        for member in mesh:
+            if member.serial == adv.serial:
+                continue  # a relay to yourself never answers
+            known = self.known.setdefault(member.serial, p.Advert(member.model_id, member.serial, self.pan_id, False))
+            address = seen[member.serial][0].address if member.serial in seen else ""
+            try:
+                devices[member.serial] = await self._read_device(client, address, known, member.ipv6)
+            except (p.ProtocolError, TimeoutError) as err:
+                _LOGGER.debug("%s: relayed read failed: %s", member.serial, err)
 
     async def _async_update_data(self) -> TankData:
         self._track_addresses()
@@ -259,22 +282,38 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
 
         last = self.data.devices if self.data else {}
         devices: dict[str, DeviceState] = {}
+        errors: dict[str, str] = {}
         tried = False
-        for serial, (info, adv) in seen.items():
+        # mesh first: one connection to the strongest device that takes one
+        for info, adv in sorted(seen.values(), key=lambda s: s[0].rssi, reverse=True)[:2]:
             if self._path_down(tried):
-                self._keep_last(serial, last, devices, "skipped: the last connects all failed")
+                break
+            tried = True
+            try:
+                async with self._lock:
+                    await self._with_client(
+                        info, lambda c, info=info, adv=adv: self._read_tank(c, info, adv, seen, devices)
+                    )
+                break
+            except CONNECT_ERRORS as err:
+                errors[adv.serial] = f"{info.address}: {err}"
+        # then direct connections to advertising devices the mesh didn't deliver
+        for serial, (info, adv) in seen.items():
+            if serial in devices or self._path_down(tried):
                 continue
             tried = True
             try:
                 async with self._lock:
                     devices[serial] = await self._with_client(
-                        info, lambda c, info=info, adv=adv: self._read_device(c, info, adv)
+                        info, lambda c, info=info, adv=adv: self._read_device(c, info.address, adv)
                     )
-                self._failures[serial] = 0
             except CONNECT_ERRORS as err:
-                self._keep_last(serial, last, devices, f"{info.address}: {err}")
-        for serial in last.keys() - seen.keys():
-            self._keep_last(serial, last, devices, "not seen in the last scan")
+                errors[serial] = f"{info.address}: {err}"
+        for serial in devices:
+            self._failures[serial] = 0
+        for serial in (seen.keys() | last.keys()) - devices.keys():
+            why = errors.get(serial) or ("skipped: the last connects all failed" if serial in seen else "not seen")
+            self._keep_last(serial, last, devices, why)
         if not devices:
             raise UpdateFailed(f"Couldn't read any of {len(seen)} advertising Mobius devices")
         return TankData(devices)
@@ -316,16 +355,16 @@ async def _broadcast(client: MobiusClient, action, data: TankData | None) -> Non
     await action(client, group)
 
 
-async def _get_tolerant(client: MobiusClient, attrs: list[int]) -> dict[int, p.AttrValue]:
+async def _get_tolerant(client: MobiusClient, attrs: list[int], target: bytes | None) -> dict[int, p.AttrValue]:
     """One batched read; if the device rejects the batch, read the attributes one by one."""
     try:
-        return await client.get_attrs(attrs)
+        return await client.get_attrs(attrs, target_ipv6=target)
     except p.ProtocolError as err:
         _LOGGER.debug("Batched read failed (%s); reading one by one", err)
     values: dict[int, p.AttrValue] = {}
     for attr in attrs:
         try:
-            values.update(await client.get_attrs([attr]))
+            values.update(await client.get_attrs([attr], target_ipv6=target))
         except p.ProtocolError:
             continue
     return values

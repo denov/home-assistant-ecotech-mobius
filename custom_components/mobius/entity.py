@@ -67,7 +67,7 @@ class MobiusDeviceEntity(CoordinatorEntity[MobiusCoordinator]):
         self._attr_translation_key = key
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, serial)},
-            connections={(CONNECTION_BLUETOOTH, state.address)} if state else set(),
+            connections={(CONNECTION_BLUETOOTH, state.address)} if state and state.address else set(),
             name=device_label(serial, state, adv.model),
             manufacturer=MANUFACTURER,
             model=adv.model,

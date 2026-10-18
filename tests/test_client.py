@@ -14,9 +14,11 @@ class FakeDevice:
 
     mtu_size = 23
 
-    def __init__(self, attrs: dict[int, bytes], opcodes: bytes = b"\x1c\x1d\x29"):
+    def __init__(self, attrs: dict[int, bytes | list[bytes]], opcodes: bytes = b"\x1c\x1d\x29", mesh=None):
         self.attrs = attrs
         self.opcodes = opcodes
+        # mesh-local IPv6 -> attrs of a device this one relays to; others get no answer
+        self.mesh: dict[bytes, dict] = mesh or {}
         self.handlers = {}
         self.tx = bytearray()
         self.received: list[p.Frame] = []
@@ -44,14 +46,17 @@ class FakeDevice:
     def _reply(self, req: p.Frame, payload: bytes) -> bytes:
         return p.Frame(p.OpGroup.C2CI_CONFIRM, req.op, req.msg_id, payload).encode()
 
-    def _handle(self, req: p.Frame) -> bytes:
+    def _handle(self, req: p.Frame, attrs: dict) -> bytes:
         if req.op == p.Op.GET_OPCODES:
             return self._reply(req, b"\x00\x01\x00" + struct.pack("<H", len(self.opcodes)) + self.opcodes)
         if req.op == p.Op.GET_ATTR_V2:
             out = b"\x00"
             for attr, idx, _count in struct.iter_unpack("<HHH", req.payload):
-                v = self.attrs[attr]
-                out += struct.pack("<HHHH", attr, idx, 1, len(v)) + v
+                if attr not in attrs:
+                    return self._reply(req, bytes([p.Status.UNSUPPORTED_ATTRIBUTE]))
+                v = attrs[attr]
+                items = v if isinstance(v, list) else [v]
+                out += struct.pack("<HHHH", attr, idx, len(items), len(items[0])) + b"".join(items)
             return self._reply(req, out)
         if req.op == p.Op.SET_ATTR_V2:
             return self._reply(req, b"\x00")
@@ -62,11 +67,13 @@ class FakeDevice:
             ip = req.payload[:16][::-1]
             token, _m, n, _t = struct.unpack_from("<iHHB", req.payload, 16)
             inner = p.Frame.decode(req.payload[25 : 25 + n])
-            reply = self._handle(inner)
+            if ip not in self.mesh:
+                return  # nobody there: the relay never answers
+            reply = self._handle(inner, self.mesh[ip])
             body = ip + struct.pack("<iHHB", token, 205, len(reply), 2) + reply
             self._notify(p.Frame(p.OpGroup.C2CI_CONFIRM, p.Op.COAP_INDICATION, 0, body).encode())
             return
-        self._notify(self._handle(req))
+        self._notify(self._handle(req, self.attrs))
 
 
 @pytest.fixture
@@ -115,6 +122,7 @@ async def test_exit_scene(device):
 
 
 async def test_coap_relay(device):
+    device.mesh[bytes(range(16))] = device.attrs
     c = MobiusClient(device)
     await c.start()
     values = await c.get_attrs([p.Attr.NAME], target_ipv6=bytes(range(16)))

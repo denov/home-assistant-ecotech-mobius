@@ -20,7 +20,12 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
   - the `feed_mode` binary sensor,
   - the buttons `feed_mode`, `all_off`, `all_on` and `resume`.
 - Each pump or light is a device, identified by its serial and named by its own name, or else its model, plus the last 4 characters of the serial. Its entities are:
-  - `mode` (OperationMode name; unknown values show as `unknown_<n>`, with `raw` as an attribute),
+  - `mode` (OperationMode name; unknown values show as `unknown_<n>`, with `raw` as an attribute). Its icon shows the device type, using Material Design icons that ship with HA (no EcoTech artwork):
+    - lights (PrimitiveType 1): `mdi:light-flood-down`,
+    - VorTech wave pumps (4): `mdi:waves`,
+    - Vectra and other return pumps (2, 5): `mdi:pump`,
+    - dosers (3): `mdi:beaker-outline`,
+    - anything else: `mdi:help-circle-outline`.
   - `operation_state` and `error` (diagnostic),
   - a `problem` binary sensor,
   - one sensor per supported PhysicalValues element the device reports (see `PHYSICAL_SENSORS`).
@@ -30,12 +35,19 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
 
 ## Polling
 
-- The tank is polled every 60 s. Each device that advertised in the last 300 s gets one BLE connection, one batched state read and one PhysicalValues read. If the device rejects the batch, the state attributes are read one by one.
-  - A device seen at several addresses is read at the one with the strongest RSSI.
+- The tank is polled every 60 s. Reading a device means one batched state read and one PhysicalValues read. If the device rejects the batch, the state attributes are read one by one.
+- **Mesh first, then direct.** Relayed reads take ~0.5 s per device and a direct connection ~2 s (measured, doc 02), so the mesh is the default.
+  1. **Bridge.** Connect to the strongest advertising device of the tank; if that fails, try the next strongest. Read the bridge itself directly.
+  2. **Mesh.** In the same connection, read the mesh list (`NetworkedThreadDevices`). Read every other listed device through the relay. This reaches devices no proxy can hear, such as a return pump under the stand.
+  3. **Direct fallback.** A device whose relayed read failed, but which advertised in the last 300 s, gets its own direct connection after the bridge is released.
+- Relayed requests wait 5 s, with one retry (the app waits 20 s). A device that's off the mesh can't stall a poll for long.
+- Devices learned from the mesh list get entities like any other device. Their model and serial come from the list.
+- A device seen at several addresses is reached at the one with the strongest RSSI.
 - The first poll after a restart waits up to 40 s for adverts before failing. HA then retries setup.
 - **Keep the last reading.** A device that fails to read, or isn't seen, keeps its last reading. After **3** failed polls in a row its entities go unavailable. The next successful read brings them back.
-- **Fail fast.** When **2 connection attempts in a row** fail, anywhere in the integration (poll or command), the integration treats the radio path (proxy or adapter) as down. The current poll then stops: the devices it hasn't read count as failed reads, as above. Every poll still makes at least one attempt, so recovery is noticed on the next poll.
-- **One connection at a time.** The integration holds one BLE connection at a time, under a lock that is taken per connection.
+- **Fail fast.** When **2 connection attempts in a row** fail, anywhere in the integration (poll or command), the integration treats the radio path (proxy or adapter) as down. The current poll then stops making connections: the devices it hasn't read count as failed reads, as above. Every poll still makes at least one attempt, so recovery is noticed on the next poll.
+- **One connection at a time.** The integration holds one BLE connection at a time, under a lock.
+  - A poll takes the lock per connection (the bridge, then each direct fallback), so a command waits for at most one of them.
   - Each attempt is a single connect; there's no retry inside a poll.
   - A failed disconnect doesn't lose the reading.
   - The GetOpCodes result is cached per device after the first connection, so later connections skip that round trip.
@@ -62,4 +74,4 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
 ## Known gaps
 
 - Radion OperationMode 50 and model 195 have no name in the app's enums. They show as `unknown_50` and "Radion (model 195)" until a capture identifies them.
-- Vectra pumps are untested.
+- Vectra pumps are read-tested through the mesh only (a Vectra L2). Whether a Vectra reports flow is unknown: GallonsPerHour read 0.

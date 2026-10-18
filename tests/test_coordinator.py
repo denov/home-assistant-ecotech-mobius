@@ -124,8 +124,8 @@ async def test_failed_disconnect_keeps_the_reading(coordinator, tank):
 
 
 async def test_command_does_not_wait_for_the_whole_poll(coordinator, tank):
-    # A's connection hangs; a button press must go out before the poll moves on to B
-    tank.gate["AA:AA"] = asyncio.Event()
+    # the bridge's (B's) connection hangs; a button press must go out before the poll moves on to A
+    tank.gate["BB:BB"] = asyncio.Event()
     poll = asyncio.create_task(coordinator._async_update_data())
     await asyncio.sleep(0)
     with patch.object(coordinator, "async_request_refresh"):
@@ -133,10 +133,10 @@ async def test_command_does_not_wait_for_the_whole_poll(coordinator, tank):
             coordinator.async_tank_command("feed", lambda c, g: c.start_scene(p.SceneId.FEED_MODE, g))
         )
         await asyncio.sleep(0)
-        tank.gate["AA:AA"].set()
+        tank.gate["BB:BB"].set()
         await asyncio.gather(poll, command)
-    # the strongest device (B) carries the command, between A's read and B's read
-    assert tank.log == [("AA:AA", "read"), ("BB:BB", "command"), ("BB:BB", "read")]
+    # the strongest device (B) carries the command, between B's read and A's direct read
+    assert tank.log == [("BB:BB", "read"), ("BB:BB", "command"), ("AA:AA", "read")]
 
 
 async def test_connects_once_per_attempt(coordinator, tank):
@@ -286,3 +286,69 @@ async def test_active_scans_only_for_this_tank(hass):
         cb(_info("BB:BB", _scan_response(42, "0000000TESTSN3", 0x1234)), None)  # BB turns out to be a neighbour's
         assert registered["BB:BB"][1], "its active scan is dropped"
         assert not registered["AA:AA"][1]
+
+
+PREFIX = bytes.fromhex("fd00000000000001")
+
+
+def _iid(n: int) -> bytes:
+    return bytes([n]) * 8
+
+
+def _mesh_tank(tank, relays: set[str]):
+    """B (the strongest) bridges to the mesh: A, B itself and a Vectra no proxy hears.
+
+    `relays` are the serials B's relay answers for.
+    """
+    members = {"SERIAL_A": (1, 42), "SERIAL_B": (2, 42), "SERIAL_V": (3, 149)}
+    entries = [_iid(n) + bytes(4) + struct.pack("<H", model) + serial.encode().ljust(14, b"\x00")
+               for serial, (n, model) in members.items()] + [bytes(28)]
+    connect = tank.connect
+
+    async def bridge_connect(cls, ble_device, name, **kw):
+        dev = await connect(cls, ble_device, name, **kw)
+        own_n = members["SERIAL_A" if ble_device.address == "AA:AA" else "SERIAL_B"][0]
+        dev.attrs[p.Attr.MESH_LOCAL_ADDRESSES] = PREFIX + _iid(own_n)
+        dev.attrs[p.Attr.NETWORKED_THREAD_DEVICES] = entries
+        dev.mesh = {PREFIX + _iid(members[s][0]): device_attrs(s.encode()) for s in relays}
+        return dev
+
+    return bridge_connect
+
+
+async def test_poll_reads_the_tank_through_one_connection(coordinator, tank):
+    with patch(f"{MOD}.establish_connection", _mesh_tank(tank, {"SERIAL_A", "SERIAL_V"})):
+        data = await coordinator._async_update_data()
+    assert tank.attempts == ["BB:BB"], "one connection for the whole tank"
+    assert set(data.devices) == {"SERIAL_A", "SERIAL_B", "SERIAL_V"}, "the mesh reaches the Vectra no proxy hears"
+    assert coordinator.known["SERIAL_V"].model_id == 149
+    assert data.devices["SERIAL_V"].physical == {0: 2330}
+
+
+async def test_bridge_is_read_directly_not_through_its_own_relay(coordinator, tank):
+    with patch(f"{MOD}.establish_connection", _mesh_tank(tank, {"SERIAL_A", "SERIAL_V"})):
+        await coordinator._async_update_data()
+    bridge = tank.connections[0]
+    relayed_to = {bytes(f.payload[:16][::-1]) for f in bridge.received if f.op == p.Op.COAP_REQUEST}
+    assert relayed_to == {PREFIX + _iid(1), PREFIX + _iid(3)}, "A and the Vectra, never B itself (no answer)"
+
+
+async def test_relay_failure_falls_back_to_a_direct_connection(coordinator, tank, monkeypatch):
+    monkeypatch.setattr("custom_components.mobius.client.COAP_TIMEOUT", 0.01)
+    with patch(f"{MOD}.establish_connection", _mesh_tank(tank, {"SERIAL_V"})):  # A's relay is silent
+        data = await coordinator._async_update_data()
+    assert tank.attempts == ["BB:BB", "AA:AA"]
+    assert set(data.devices) == {"SERIAL_A", "SERIAL_B", "SERIAL_V"}
+
+
+async def test_next_strongest_device_bridges_when_the_first_is_down(coordinator, tank):
+    tank.down.add("BB:BB")
+    with patch(f"{MOD}.establish_connection", _mesh_tank(tank, {"SERIAL_B", "SERIAL_V"})):
+        data = await coordinator._async_update_data()
+    assert tank.attempts == ["BB:BB", "AA:AA"]
+    assert set(data.devices) == {"SERIAL_A", "SERIAL_B", "SERIAL_V"}, "B is still read, through A's relay"
+
+
+def test_mesh_requests_fail_fast():
+    from custom_components.mobius import client
+    assert client.COAP_TIMEOUT <= 5, "relayed reads answer in ~0.5 s; a dead device must not stall a poll"

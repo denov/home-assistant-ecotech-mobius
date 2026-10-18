@@ -153,3 +153,22 @@ def test_parse_advert_unrelated():
 
 def test_chunk():
     assert p.chunk(bytes(45), 20) == [bytes(20), bytes(20), bytes(5)]
+
+
+def mesh_entry(iid: bytes, model: int, serial: str) -> bytes:
+    return iid + bytes.fromhex("b01f0000") + struct.pack("<H", model) + serial.encode()
+
+
+def test_mesh_device_list():
+    prefix = bytes.fromhex("fd00000000000001")
+    value = p.AttrValue(p.Attr.NETWORKED_THREAD_DEVICES)
+    value.items = {
+        0: mesh_entry(bytes(range(8)), 42, "0000000TESTSN1"),
+        1: mesh_entry(bytes(range(8, 16)), 149, "0000000TESTSN2"),
+        2: bytes(28),  # unused slot
+    }
+    devices = p.parse_mesh_devices(value, prefix + bytes(8))
+    assert devices == [
+        p.MeshDevice(prefix + bytes(range(8)), 42, "0000000TESTSN1"),
+        p.MeshDevice(prefix + bytes(range(8, 16)), 149, "0000000TESTSN2"),
+    ]
