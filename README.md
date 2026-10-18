@@ -54,6 +54,7 @@ api:
 
 ota:
   - platform: esphome
+    encryption:           # uses the api key; plaintext uploads are refused
 
 logger:
 
