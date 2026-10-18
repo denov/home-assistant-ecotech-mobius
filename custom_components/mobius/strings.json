@@ -1,0 +1,106 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "confirm": {
+        "title": "Mobius tank found",
+        "description": "Set up {name}?\n\nDevices in range: {devices}"
+      },
+      "user": {
+        "title": "Choose a Mobius tank",
+        "data": {
+          "pan_id": "Tank"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This tank is already set up.",
+      "no_devices_found": "No Mobius tank found in Bluetooth range yet. Mobius devices only report which tank they belong to when actively scanned, which can take a few minutes after a proxy starts; try again shortly, or check that a Bluetooth proxy is near the tank.",
+      "not_supported": "This Mobius device isn't part of a tank yet. Set it up in the Mobius app first.",
+      "no_scan_response": "The Mobius device didn't answer an active Bluetooth scan in time. Move a Bluetooth proxy closer to the tank and try again."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "scene": {
+        "name": "Scene"
+      },
+      "scene_remaining": {
+        "name": "Scene time remaining"
+      },
+      "mode": {
+        "name": "Mode"
+      },
+      "operation_state": {
+        "name": "Operation state",
+        "state": {
+          "oob": "Out of box",
+          "live_demo": "Live demo",
+          "scene": "Scene",
+          "schedule": "Schedule"
+        }
+      },
+      "error": {
+        "name": "Error"
+      },
+      "driver_temperature": {
+        "name": "Driver temperature"
+      },
+      "motor_temperature": {
+        "name": "Motor temperature"
+      },
+      "cluster_temperature": {
+        "name": "LED cluster temperature"
+      },
+      "cluster2_temperature": {
+        "name": "LED cluster 2 temperature"
+      },
+      "module_temperature": {
+        "name": "Module temperature"
+      },
+      "internal_temperature": {
+        "name": "Internal temperature"
+      },
+      "motor_power": {
+        "name": "Motor power"
+      },
+      "motor_rpm": {
+        "name": "Motor speed"
+      },
+      "battery_voltage": {
+        "name": "Battery voltage"
+      },
+      "input_voltage": {
+        "name": "Input voltage"
+      },
+      "flow": {
+        "name": "Flow"
+      },
+      "motor_energy": {
+        "name": "Energy"
+      }
+    },
+    "binary_sensor": {
+      "feed_mode": {
+        "name": "Feed mode"
+      },
+      "problem": {
+        "name": "Problem"
+      }
+    },
+    "button": {
+      "feed_mode": {
+        "name": "Feed mode"
+      },
+      "all_off": {
+        "name": "All off"
+      },
+      "all_on": {
+        "name": "All on"
+      },
+      "resume": {
+        "name": "Resume schedule"
+      }
+    }
+  }
+}

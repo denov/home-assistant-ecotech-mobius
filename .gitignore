@@ -1,0 +1,7 @@
+/.venv/
+/.venv-esphome/
+/.idea/
+__pycache__/
+.pytest_cache/
+*.apk
+captures/

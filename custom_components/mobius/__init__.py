@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""EcoTech Mobius: local BLE control of Radion, Vectra and VorTech devices."""
+
+from __future__ import annotations
+
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
+
+from .const import CONF_PAN_ID
+from .coordinator import MobiusCoordinator
+from .entity import MobiusConfigEntry, MobiusRuntimeData, tank_device
+
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.BUTTON]
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: MobiusConfigEntry) -> bool:
+    pan_id = entry.data[CONF_PAN_ID]
+    coordinator = MobiusCoordinator(hass, entry, pan_id)
+    await coordinator.async_config_entry_first_refresh()
+    tank = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, **tank_device(f"tank_{pan_id:04x}", pan_id)
+    )
+    entry.runtime_data = MobiusRuntimeData(coordinator, pan_id, tank.id)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: MobiusConfigEntry) -> bool:
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
