@@ -63,6 +63,10 @@ esp32_ble_tracker:
 
 bluetooth_proxy:
   active: true            # required: the integration connects to the devices
+
+button:
+  - platform: restart     # lets you restart the proxy from Home Assistant
+    name: Restart
 ```
 
 Flash it, add it to Home Assistant through the **ESPHome** integration, and the tank is offered under **Settings** → **Devices & services** shortly after.
@@ -92,7 +96,7 @@ So when you've finished in the Mobius app, close it fully (swipe it away). Home 
 |---|---|
 | The tank isn't offered | Is the proxy online in the ESPHome integration with `active: true`? Mobius devices appear as **MOBIUS** under **Settings** → **Bluetooth** → **Advertisement monitor**. Wait a few minutes for an active scan. |
 | One device is unavailable | Is the Mobius app open? Is that device powered and close enough to a proxy? Its signal (RSSI) is shown in the Advertisement monitor; around -80 dBm or weaker is too far. |
-| Everything is unavailable | Is the proxy online? Move it closer, or add a second proxy on the other side of the tank. |
+| Everything is unavailable | Is the proxy online? Move it closer, or add a second proxy on the other side of the tank. If the proxy is online and still sees the devices (Advertisement monitor) but nothing connects, press its **Restart** button. |
 | Buttons fail with "Couldn't …" | The same as above: no device of the tank could be reached in time. Try again once the app is closed. |
 
 ## Confirm before All off

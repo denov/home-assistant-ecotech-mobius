@@ -45,6 +45,9 @@ UNAVAILABLE_AFTER_FAILURES = 3
 # how long the first poll waits for scan responses before giving up (HA retries setup)
 FIRST_ADVERT_WAIT_SECONDS = 40
 
+# connection failures in a row (poll or command) after which the radio path counts as down
+ABORT_AFTER_CONNECT_FAILURES = 2
+
 CONNECT_ERRORS = (BleakError, TimeoutError, p.ProtocolError, EOFError)
 
 
@@ -105,9 +108,13 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
             update_interval=timedelta(seconds=SCAN_INTERVAL_SECONDS),
         )
         self.pan_id = pan_id
-        # one BLE connection at a time, held per connection so a command waits for at
-        # most one device read, not a whole poll
+        # one BLE connection at a time: a poll takes it per device read, so a command waits
+        # for at most one read; a command holds it for all its attempts
         self._lock = asyncio.Lock()
+        # failed connects in a row, polls and commands alike; reset by any successful connect
+        self._connect_failures = 0
+        # address -> GetOpCodes result, so later connections skip that round trip
+        self._opcodes: dict[str, bytes] = {}
         # serial -> failed reads in a row; the last reading stands in until UNAVAILABLE_AFTER_FAILURES
         self._failures: dict[str, int] = {}
         # serial -> last advert, so devices keep their entities while briefly unreachable
@@ -128,7 +135,7 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
         addresses an integration registered an ACTIVE callback for.
         """
         for info in bluetooth.async_discovered_service_info(self.hass, connectable=True):
-            if not is_mobius(info) or info.address in self._active_scans:
+            if not is_mobius(info) or info.address in self._active_scans or self._other_tank(info):
                 continue
             unsub = bluetooth.async_register_callback(
                 self.hass,
@@ -142,7 +149,14 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
 
     @callback
     def _on_advert(self, info: bluetooth.BluetoothServiceInfoBleak, _change: bluetooth.BluetoothChange) -> None:
+        if self._other_tank(info) and (unsub := self._active_scans.pop(info.address, None)):
+            unsub()  # a neighbour's tank: stop keeping the proxy busy with it
+            return
         self._remember(info)
+
+    def _other_tank(self, info: bluetooth.BluetoothServiceInfoBleak) -> bool:
+        adv = p.parse_advert(info.manufacturer_data)
+        return adv is not None and adv.pan_id != self.pan_id
 
     @callback
     def _remember(self, info: bluetooth.BluetoothServiceInfoBleak) -> None:
@@ -175,21 +189,31 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
     async def _with_client(
         self, info: bluetooth.BluetoothServiceInfoBleak, action: Callable[[MobiusClient], Awaitable[Any]]
     ) -> Any:
+        """One connection to one device; the caller holds self._lock."""
         ble_device = bluetooth.async_ble_device_from_address(self.hass, info.address, connectable=True)
         if ble_device is None:
             raise BleakError(f"{info.address} is not connectable right now")
-        async with self._lock:
-            # one attempt: a device that's down costs ~20 s per try, and the next poll retries
+        # one attempt: a device that's down costs ~40 s per try, and the next poll retries
+        try:
             ble = await establish_connection(BleakClientWithServiceCache, ble_device, info.address, max_attempts=1)
+        except CONNECT_ERRORS:
+            self._connect_failures += 1
+            raise
+        self._connect_failures = 0
+        try:
+            client = MobiusClient(ble)
+            await client.start(self._opcodes.get(info.address))
+            self._opcodes[info.address] = client.opcodes
+            return await action(client)
+        finally:
             try:
-                client = MobiusClient(ble)
-                await client.start()
-                return await action(client)
-            finally:
-                try:
-                    await ble.disconnect()
-                except BleakError as err:
-                    _LOGGER.debug("%s: disconnect failed: %s", info.address, err)
+                await ble.disconnect()
+            except BleakError as err:
+                _LOGGER.debug("%s: disconnect failed: %s", info.address, err)
+
+    def _path_down(self, tried: bool) -> bool:
+        """Stop trying once something was tried and the last connects all failed."""
+        return tried and self._connect_failures >= ABORT_AFTER_CONNECT_FAILURES
 
     async def _read_device(self, client: MobiusClient, info, adv: p.Advert) -> DeviceState:
         state = DeviceState(adv.serial, info.address, adv, read_at=time.monotonic())
@@ -235,11 +259,17 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
 
         last = self.data.devices if self.data else {}
         devices: dict[str, DeviceState] = {}
+        tried = False
         for serial, (info, adv) in seen.items():
+            if self._path_down(tried):
+                self._keep_last(serial, last, devices, "skipped: the last connects all failed")
+                continue
+            tried = True
             try:
-                devices[serial] = await self._with_client(
-                    info, lambda c, info=info, adv=adv: self._read_device(c, info, adv)
-                )
+                async with self._lock:
+                    devices[serial] = await self._with_client(
+                        info, lambda c, info=info, adv=adv: self._read_device(c, info, adv)
+                    )
                 self._failures[serial] = 0
             except CONNECT_ERRORS as err:
                 self._keep_last(serial, last, devices, f"{info.address}: {err}")
@@ -257,20 +287,26 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
             devices[serial] = last[serial]
 
     async def async_tank_command(self, what: str, action: Callable[[MobiusClient, int], Awaitable[None]]) -> None:
-        """Send a tank-wide broadcast through the strongest connectable device."""
+        """Send a tank-wide broadcast through the strongest connectable device, else the next."""
         seen = self.advertised()
         if not seen:
             raise HomeAssistantError(f"Can't {what}: no device of this tank is in Bluetooth range")
         candidates = sorted(seen.values(), key=lambda s: s[0].rssi, reverse=True)
         last_err: Exception | None = None
-        for info, _adv in candidates[:2]:
-            try:
-                await self._with_client(info, lambda c: _broadcast(c, action, self.data))
-                break
-            except CONNECT_ERRORS as err:
-                _LOGGER.debug("%s via %s failed: %s", what, info.address, err)
-                last_err = err
-        else:
+        sent = False
+        async with self._lock:  # for all attempts, so poll reads can't slip in between
+            for info, _adv in candidates[:2]:
+                if self._path_down(last_err is not None):
+                    break
+                try:
+                    await self._with_client(info, lambda c: _broadcast(c, action, self.data))
+                except CONNECT_ERRORS as err:
+                    _LOGGER.debug("%s via %s failed: %s", what, info.address, err)
+                    last_err = err
+                else:
+                    sent = True
+                    break
+        if not sent:
             raise HomeAssistantError(f"Couldn't {what}: {last_err}") from last_err
         await self.async_request_refresh()
 

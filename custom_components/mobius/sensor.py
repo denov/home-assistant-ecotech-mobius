@@ -24,6 +24,14 @@ ERROR_STATES = {
 OPERATION_STATES = {s.value: s.name.lower() for s in p.OperationState}
 
 
+def physical_sensor_indexes(physical: dict[int, int]) -> list[int]:
+    """PhysicalValues that get a sensor; battery voltage only once a battery is attached."""
+    return [
+        i for i, value in physical.items()
+        if i in PHYSICAL_SENSORS and not (i == p.PhysicalValue.BATTERY_VOLTAGE and value == 0)
+    ]
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: MobiusConfigEntry, async_add_entities: AddEntitiesCallback):
     data = entry.runtime_data
     async_add_entities([TankSceneSensor(data), TankSceneRemainingSensor(data)])
@@ -39,10 +47,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: MobiusConfigEntry, async
                 ("operation_state", lambda s=serial: OperationStateSensor(data, s)),
                 ("error", lambda s=serial: ErrorSensor(data, s)),
             ]
-            for index in state.physical:
-                if index in PHYSICAL_SENSORS:
-                    key = PHYSICAL_SENSORS[index][0]
-                    wanted.append((key, lambda s=serial, i=index: PhysicalSensor(data, s, i)))
+            for index in physical_sensor_indexes(state.physical):
+                key = PHYSICAL_SENSORS[index][0]
+                wanted.append((key, lambda s=serial, i=index: PhysicalSensor(data, s, i)))
             if p.PhysicalValue.MOTOR_POWER in state.physical:
                 wanted.append(("motor_energy", lambda s=serial: MotorEnergySensor(data, s)))
             for key, factory in wanted:

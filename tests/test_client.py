@@ -132,3 +132,10 @@ async def test_timeout_after_retry(device, monkeypatch):
     with pytest.raises(TimeoutError):
         await c.get_attrs([p.Attr.NAME])
     assert not c._pending
+
+
+async def test_start_with_known_opcodes_skips_the_round_trip(device):
+    c = MobiusClient(device)
+    await c.start(opcodes=b"\x1c\x1d")
+    assert not device.received
+    assert c.wide

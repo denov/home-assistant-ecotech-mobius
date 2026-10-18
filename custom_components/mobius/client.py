@@ -60,14 +60,18 @@ class MobiusClient:
         size = getattr(self._ble, "mtu_size", 23) or 23
         return max(20, size - 3)
 
-    async def start(self) -> None:
+    async def start(self, opcodes: bytes | None = None) -> None:
+        """Enable notifications and pick the opcode variants; pass `opcodes` from an earlier connection to skip asking."""
         await self._ble.start_notify(p.RX_DATA_UUID, self._on_rx_data)
         await self._ble.start_notify(p.RX_FINAL_UUID, self._on_rx_final)
-        try:
-            self.opcodes = await self.get_opcodes()
-        except (TimeoutError, p.ProtocolError):
-            _LOGGER.debug("GetOpCodes failed; falling back to v1 attribute opcodes")
-            self.opcodes = b""
+        if opcodes is not None:
+            self.opcodes = opcodes
+        else:
+            try:
+                self.opcodes = await self.get_opcodes()
+            except (TimeoutError, p.ProtocolError):
+                _LOGGER.debug("GetOpCodes failed; falling back to v1 attribute opcodes")
+                self.opcodes = b""
         self.wide = p.Op.GET_ATTR_V2 in self.opcodes and p.Op.SET_ATTR_V2 in self.opcodes
 
     # --- notifications ------------------------------------------------------

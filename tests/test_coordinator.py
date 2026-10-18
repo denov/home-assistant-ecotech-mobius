@@ -7,12 +7,18 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from bleak.exc import BleakError
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.update_coordinator import UpdateFailed
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mobius import protocol as p
 from custom_components.mobius.const import CONF_PAN_ID, DOMAIN
-from custom_components.mobius.coordinator import UNAVAILABLE_AFTER_FAILURES, MobiusCoordinator
+from custom_components.mobius.coordinator import (
+    ABORT_AFTER_CONNECT_FAILURES,
+    UNAVAILABLE_AFTER_FAILURES,
+    MobiusCoordinator,
+)
 
 from .test_client import FakeDevice
 
@@ -44,12 +50,15 @@ class Tank:
             for serial, addr, rssi in (("SERIAL_A", "AA:AA", -70), ("SERIAL_B", "BB:BB", -60))
         }
         self.down: set[str] = set()
+        self.attempts: list[str] = []  # every connect, in order, failed or not
+        self.connections: list[FakeDevice] = []
         self.log: list[str] = []
         self.gate: dict[str, asyncio.Event] = {}
         self.disconnect_error = False
 
     async def connect(self, _cls, ble_device, _name, **_kw):
         addr = ble_device.address
+        self.attempts.append(addr)
         if addr in self.gate:
             await self.gate[addr].wait()
         if addr in self.down:
@@ -65,6 +74,7 @@ class Tank:
             return True
 
         dev.disconnect = disconnect
+        self.connections.append(dev)
         return dev
 
 
@@ -177,3 +187,102 @@ async def test_device_map_survives_restart(hass):
         seen = MobiusCoordinator(hass, entry, PAN).advertised()  # a fresh coordinator = after restart
     assert set(seen) == {"0000000TESTSN1"}
     assert seen["0000000TESTSN1"][1].model_id == 42
+
+
+def _add_device(tank, serial: str, addr: str, rssi: int) -> None:
+    tank.seen[serial] = (SimpleNamespace(address=addr, rssi=rssi), p.Advert(42, serial, PAN, False))
+
+
+def _feed(coordinator):
+    return coordinator.async_tank_command("feed", lambda c, g: c.start_scene(p.SceneId.FEED_MODE, g))
+
+
+async def test_poll_stops_when_the_radio_path_is_down(coordinator, tank):
+    _add_device(tank, "SERIAL_C", "CC:CC", -80)
+    coordinator.data = await coordinator._async_update_data()
+    tank.down.update({"AA:AA", "BB:BB", "CC:CC"})  # e.g. the proxy can't connect to anything
+    coordinator.data = await coordinator._async_update_data()
+    assert len(tank.attempts) == 3 + ABORT_AFTER_CONNECT_FAILURES, "each dead connect costs ~40 s"
+    assert set(coordinator.data.devices) == {"SERIAL_A", "SERIAL_B", "SERIAL_C"}, "skipped devices keep their reading"
+
+
+async def test_poll_after_an_aborted_poll_still_tries_once(coordinator, tank):
+    tank.down.update({"AA:AA", "BB:BB"})
+    with pytest.raises(UpdateFailed):
+        await coordinator._async_update_data()
+    tank.attempts.clear()
+    with pytest.raises(UpdateFailed):
+        await coordinator._async_update_data()
+    assert len(tank.attempts) == 1
+    tank.down.clear()  # the proxy is back
+    tank.attempts.clear()
+    data = await coordinator._async_update_data()
+    assert set(data.devices) == {"SERIAL_A", "SERIAL_B"}
+
+
+async def test_command_tries_once_when_the_radio_path_is_down(coordinator, tank):
+    tank.down.update({"AA:AA", "BB:BB"})
+    with pytest.raises(UpdateFailed):
+        await coordinator._async_update_data()
+    tank.attempts.clear()
+    with pytest.raises(HomeAssistantError):
+        await _feed(coordinator)
+    assert len(tank.attempts) == 1
+
+
+async def test_command_tries_the_next_device_when_one_is_down(coordinator, tank):
+    tank.down.add("BB:BB")  # the strongest device
+    with patch.object(coordinator, "async_request_refresh"):
+        await _feed(coordinator)
+    assert tank.attempts == ["BB:BB", "AA:AA"]
+    assert tank.log == [("AA:AA", "command")]
+
+
+async def test_poll_cannot_slip_in_between_command_attempts(coordinator, tank):
+    tank.down.add("BB:BB")
+    tank.gate["BB:BB"] = asyncio.Event()
+    with patch.object(coordinator, "async_request_refresh"):
+        command = asyncio.create_task(_feed(coordinator))
+        await asyncio.sleep(0)
+        poll = asyncio.create_task(coordinator._async_update_data())
+        await asyncio.sleep(0)
+        tank.gate["BB:BB"].set()
+        await asyncio.gather(command, poll)
+    assert tank.attempts[:2] == ["BB:BB", "AA:AA"]
+    assert tank.log[0] == ("AA:AA", "command"), "the poll must not read between the command's attempts"
+
+
+async def test_opcodes_are_asked_once_per_device(coordinator, tank):
+    await coordinator._async_update_data()
+    tank.connections.clear()
+    await coordinator._async_update_data()
+    sent = [f.op for dev in tank.connections for f in dev.received]
+    assert p.Op.GET_OPCODES not in sent
+    assert p.Op.GET_ATTR_V2 in sent, "the cached opcodes still select the 2-byte variants"
+
+
+async def test_active_scans_only_for_this_tank(hass):
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_PAN_ID: PAN}, unique_id="405f")
+    entry.add_to_hass(hass)
+    infos = [
+        _info("AA:AA", _scan_response(42, "0000000TESTSN1", PAN)),
+        _info("BB:BB", {}),  # not identified yet
+        _info("CC:CC", _scan_response(42, "0000000TESTSN2", 0x1234)),  # a neighbour's tank
+    ]
+    registered: dict[str, list] = {}
+
+    def register(_hass, cb, matcher, _mode):
+        registered[matcher["address"]] = [cb, False]
+        return lambda: registered[matcher["address"]].__setitem__(1, True)
+
+    with (
+        patch(f"{MOD}.bluetooth.async_discovered_service_info", lambda *_a, **_k: infos),
+        patch(f"{MOD}.bluetooth.async_register_callback", register),
+    ):
+        coordinator = MobiusCoordinator(hass, entry, PAN)
+        coordinator._track_addresses()
+        assert set(registered) == {"AA:AA", "BB:BB"}
+        cb, _ = registered["BB:BB"]
+        cb(_info("BB:BB", _scan_response(42, "0000000TESTSN3", 0x1234)), None)  # BB turns out to be a neighbour's
+        assert registered["BB:BB"][1], "its active scan is dropped"
+        assert not registered["AA:AA"][1]
