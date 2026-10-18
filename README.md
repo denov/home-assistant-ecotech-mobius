@@ -4,6 +4,8 @@ Brought to you by [Fullstack Systems](https://fullstacksystems.com).
 
 This custom integration talks directly to [EcoTech Marine](https://ecotechmarine.com/) Mobius devices (Radion lights, VorTech MP and Vectra pumps) over Bluetooth. It brings their status into Home Assistant as sensors and adds tank-wide Feed Mode, All Off and All On controls. Everything stays local: no EcoTech cloud account or phone is needed once the tank is set up in the Mobius app.
 
+![Mobius dashboard in Home Assistant: tank controls, active scene, VorTech MP40 flow, power, speed and temperatures, Radion temperatures, device health and pump energy](https://raw.githubusercontent.com/denov/home-assistant-ecotech-mobius/main/docs/images/dashboard.png)
+
 ## Features
 
 - Finds your tank automatically over Bluetooth (one Home Assistant entry per Mobius tank)
@@ -15,6 +17,8 @@ This custom integration talks directly to [EcoTech Marine](https://ecotechmarine
 - Buttons: **Feed mode**, **All off**, **All on** and **Resume schedule**, sent to every device of the tank at once, like the scene tiles in the Mobius app
 - Devices that drop out briefly keep their last reading; they go unavailable only after several failed reads in a row
 - Designed for HACS install
+
+![History in Home Assistant: pump flow and power over a night, pump energy per day, and supply voltage of every device](https://raw.githubusercontent.com/denov/home-assistant-ecotech-mobius/main/docs/images/history.png)
 
 Tested with VorTech MP40w G3 QD pumps and current-generation Radion lights. Other Mobius devices should work, since they share the same protocol. Please open an issue with debug logs if one doesn't.
 
