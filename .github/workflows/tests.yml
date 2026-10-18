@@ -19,5 +19,8 @@ jobs:
       - name: Install test requirements
         run: pip install -r requirements_test.txt
 
+      - name: Lint
+        run: pip install ruff==0.14.0 && ruff check .
+
       - name: Run tests
         run: python -m pytest

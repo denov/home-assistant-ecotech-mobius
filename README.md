@@ -4,20 +4,23 @@ Brought to you by [Fullstack Systems](https://fullstacksystems.com).
 
 This custom integration talks directly to [EcoTech Marine](https://ecotechmarine.com/) Mobius devices (Radion lights, VorTech MP and Vectra pumps) over Bluetooth. It brings their status into Home Assistant as sensors and adds tank-wide Feed Mode, All Off and All On controls. Everything stays local: no EcoTech cloud account or phone is needed once the tank is set up in the Mobius app.
 
-![Mobius dashboard in Home Assistant: tank controls, active scene, VorTech MP40 flow, power, speed and temperatures, Radion temperatures, device health and pump energy](https://raw.githubusercontent.com/denov/home-assistant-ecotech-mobius/main/docs/images/dashboard.png)
+![Mobius dashboard in Home Assistant: tank controls, active scene, VorTech MP40 flow, power, speed and temperatures, a Vectra return pump, Radion temperatures and device health](https://raw.githubusercontent.com/denov/home-assistant-ecotech-mobius/main/docs/images/dashboard.png)
 
 ## Features
 
 - Finds your tank automatically over Bluetooth (one Home Assistant entry per Mobius tank)
 - Per device: mode (e.g. Reefcrest, Lagoon, Sync), error state, and what the device reports
   - Pumps: flow (GPH), motor power, motor speed, motor and driver temperature, input voltage
-  - Lights: LED cluster, driver and module temperatures, input voltage
-- Energy dashboard: an **Energy** sensor (kWh) for each pump, counted from its motor power. Input voltage sensors keep long-term statistics. Radion lights don't report power, so they have no energy sensor.
+  - Lights: the brightness of each colour channel in % (Royal blue, Blue, Violet, UV, Cool white, Warm white, Green, Red, Moonlight, ...), so you can see the colour mix the light runs right now; LED, driver and module temperatures; input voltage
+- Energy dashboard: an **Energy** sensor (kWh) for each pump, counted from its motor power. Input voltage sensors keep long-term statistics. Radion lights don't report power, so they have no energy sensor. A Vectra return pump usually uses the most.
 - Per tank: active scene, scene time remaining, and a Feed Mode sensor
 - Buttons: **Feed mode**, **All off**, **All on** and **Resume schedule**, sent to every device of the tank at once, like the scene tiles in the Mobius app
 - Reads the whole tank through **one** Bluetooth connection: the device nearest the proxy relays to the others over the tank's own mesh, so a pump under the stand or a light out of range is still read
 - Devices that drop out briefly keep their last reading; they go unavailable only after several failed reads in a row
+- A device that has left the tank can be deleted from its device page
 - Designed for HACS install
+
+![Light colour channels in Home Assistant: the brightness of every channel of three Radion lights, colour coded](https://raw.githubusercontent.com/denov/home-assistant-ecotech-mobius/main/docs/images/lights.png)
 
 ![History in Home Assistant: pump flow and power over a night, pump energy per day, and supply voltage of every device](https://raw.githubusercontent.com/denov/home-assistant-ecotech-mobius/main/docs/images/history.png)
 
@@ -26,7 +29,8 @@ Tested with VorTech MP40w G3 QD pumps, a Vectra L2 return pump and current-gener
 ## Requirements
 
 - A tank already set up in the EcoTech Mobius app. The integration uses the tank the app created; it doesn't set up new devices.
-- Bluetooth within range of the tank. See below.
+- Home Assistant 2026.10 or newer.
+- Bluetooth within range of at least one device of the tank. See below.
 
 ## Bluetooth connection
 
@@ -126,7 +130,8 @@ This only covers that card: the **Press** button in the entity's dialog, automat
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=denov&repository=home-assistant-ecotech-mobius&category=Integration)
 
-1. Use HACS to install the integration.
+1. Use the button above to open the repository in HACS. Until the integration is in the HACS default list, HACS offers to add it as a custom repository. You can also do that by hand: **HACS** → **⋮** → **Custom repositories**, paste `https://github.com/denov/home-assistant-ecotech-mobius` and choose type **Integration**.
+1. Download **EcoTech Mobius** in HACS.
 1. Restart Home Assistant.
 1. Home Assistant offers the tank under **Settings** → **Devices & services** once it's in Bluetooth range, or set it up from the UI:
 
@@ -134,8 +139,8 @@ This only covers that card: the **Press** button in the entity's dialog, automat
 
 ### Manual Installation
 
-1. Download the integration files from the GitHub repository.
-2. Place the `custom_components/mobius` folder in the `custom_components` directory of Home Assistant.
+1. Download `mobius.zip` from the [latest release](https://github.com/denov/home-assistant-ecotech-mobius/releases/latest).
+2. Unzip it into `custom_components/mobius` in your Home Assistant configuration directory.
 3. Restart Home Assistant.
 4. Set up the integration using the UI.
 

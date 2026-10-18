@@ -1,0 +1,22 @@
+name: Release
+on:
+  release:
+    types: [published]
+permissions:
+  contents: write
+jobs:
+  zip:
+    runs-on: "ubuntu-latest"
+    name: Attach mobius.zip
+    steps:
+      - name: Check out the repository
+        uses: "actions/checkout@v4"
+
+      - name: Build zip
+        working-directory: custom_components/mobius
+        run: zip -r "$GITHUB_WORKSPACE/mobius.zip" . -x '__pycache__/*' '*/__pycache__/*'
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" mobius.zip --clobber
