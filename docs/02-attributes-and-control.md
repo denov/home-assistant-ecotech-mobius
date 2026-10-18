@@ -104,3 +104,13 @@ Tank panId `0x405f`, group 2: 2 × VorTech MP40w G3 QD (model 42), 3 × model 19
 - The light's `Name` attribute was blank; the pumps' was "MP40".
 - **GroupBitmap:** light `0x2000000000000003` (group 2 + sub-group 62), pump `0x03` (group 2).
 - The Vectra wasn't advertising (likely powered off).
+
+### Scene control (2026-10-18)
+
+- **Feed mode:** `DE 18`, `rsv0 = 0x08` (group 2), payload `9101 00 01 04 01000000` (CurrentScene = FeedMode, timeout 0). It was sent to one MP40 only. The device answered status `00`, and the next poll showed:
+  - both MP40s in OperationMode 40 (FeedMode), at ~800 GPH and 1 W;
+  - the scene active, with ~10 min left. The device picks the timeout itself.
+  - The Radions stayed at mode 50.
+- **Resume schedule:** `DE 18`, group 2, payload `6800 00 01 01 03` (OperationState = Schedule). The device answered status `00`. The next poll showed the scene inactive and the MP40s back on Reefcrest/SyncSlave.
+- Both reached the other pump through the mesh, which confirms that a single group-addressed set is enough for the whole tank.
+- The success reply carries 2 more bytes after the status (`00 ffff`). They aren't used yet.
