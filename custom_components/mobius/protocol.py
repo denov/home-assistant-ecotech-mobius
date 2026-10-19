@@ -407,6 +407,10 @@ class Advert:
     def model(self) -> str:
         return MODELS.get(self.model_id, f"Unknown ({self.model_id})")
 
+    @property
+    def is_light(self) -> bool:
+        return self.model.startswith("Radion")
+
 
 def parse_advert(manufacturer_data: dict[int, bytes]) -> Advert | None:
     """Parse HA/bleak manufacturer_data. The app treats the "company id" as payload bytes."""

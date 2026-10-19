@@ -47,6 +47,12 @@ FIRST_ADVERT_WAIT_SECONDS = 40
 # connection failures in a row (poll or command) after which the radio path counts as down
 ABORT_AFTER_CONNECT_FAILURES = 2
 
+# a light read over a direct connection reports this instead of its mode (docs/02)
+BLE_CONNECTED_MODE = 50
+
+# lights rank this much weaker when picking the bridge, so a nearby pump bridges instead
+LIGHT_BRIDGE_PENALTY_DB = 10
+
 type Seen = bluetooth.BluetoothServiceInfoBleak
 
 CONNECT_ERRORS = (BleakError, TimeoutError, p.ProtocolError, EOFError)
@@ -235,6 +241,9 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
             state.operation_state = p.u8(v.first)
         if (v := values.get(p.Attr.OPERATION_MODE)) is not None:
             state.operation_mode = p.u16(v.first) if len(v.first) >= 2 else p.u8(v.first)
+        if state.operation_mode == BLE_CONNECTED_MODE:
+            last = self.data.devices.get(adv.serial) if self.data else None
+            state.operation_mode = last.operation_mode if last else None
         scene_attrs = (p.Attr.CURRENT_SCENE, p.Attr.SCENE_TIMER, p.Attr.SCENE_TIMEOUT)
         if all(a in values for a in scene_attrs):
             state.scene = SceneState(*(p.u16(values[a].first) for a in scene_attrs))
@@ -361,8 +370,13 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
 
 
 def _strongest(seen: dict[str, tuple[Seen, p.Advert]]) -> list[tuple[Seen, p.Advert]]:
-    """The two devices with the best signal: who to connect to for the whole tank."""
-    return sorted(seen.values(), key=lambda s: s[0].rssi, reverse=True)[:2]
+    """The two devices to connect to for the whole tank: best signal, pumps before lights."""
+
+    def rank(s: tuple[Seen, p.Advert]) -> tuple[int, bool]:
+        light = s[1].is_light
+        return s[0].rssi - (LIGHT_BRIDGE_PENALTY_DB if light else 0), not light
+
+    return sorted(seen.values(), key=rank, reverse=True)[:2]
 
 
 async def _broadcast(client: MobiusClient, action, data: TankData | None) -> None:

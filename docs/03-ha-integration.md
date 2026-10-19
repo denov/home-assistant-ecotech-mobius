@@ -40,6 +40,8 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
 - The tank is polled every 60 s. Reading a device means one batched state read and one PhysicalValues read; lights (PrimitiveType 1) also get one `Intensity` read. If the device rejects the batch, the state attributes are read one by one.
 - **Mesh first, then direct.** Relayed reads take ~0.5 s per device and a direct connection ~2 s (measured, doc 02), so the mesh is the default.
   1. **Bridge.** Connect to the strongest advertising device of the tank; if that fails, try the next strongest. Read the bridge itself directly.
+     - **Pumps bridge before lights.** A light read over a direct connection reports OperationMode 50 instead of its real mode (doc 02), so lights count as 10 dB weaker when ranking. A pump within 10 dB of the strongest light is picked first. A light still bridges when no pump is close.
+     - A light that bridges anyway keeps the mode of its last reading (from the mesh) instead of 50. With no earlier reading, its mode is unknown.
   2. **Mesh.** In the same connection, read the mesh list (`NetworkedThreadDevices`). Read every other listed device through the relay. This reaches devices no proxy can hear, such as a return pump under the stand.
   3. **Direct fallback.** A device whose relayed read failed, but which advertised in the last 300 s, gets its own direct connection after the bridge is released.
 - Relayed requests wait 5 s, with one retry (the app waits 20 s). A device that's off the mesh can't stall a poll for long.
@@ -76,5 +78,5 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
 ## Known gaps
 
 - Model 195 has no name in the app's enums (codename only), so it shows as "Radion (model 195)".
-- A Radion read over a direct connection reports OperationMode 50 (shown as `unknown_50`) instead of its real mode (docs/02). Lights are normally read through the mesh, which reports the real mode.
+- A Radion read over a direct connection reports OperationMode 50 instead of its real mode (docs/02). Pumps are preferred as the bridge, and a bridging light keeps its last mode (see Polling). Only on a tank with no pump in range, right after setup, is its mode unknown.
 - Vectra pumps are read-tested through the mesh only (a Vectra L2). Whether a Vectra reports flow is unknown: GallonsPerHour read 0.

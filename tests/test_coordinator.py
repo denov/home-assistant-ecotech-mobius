@@ -374,3 +374,42 @@ async def test_lights_report_their_channel_intensities(coordinator, tank):
     pump = next(d for d in tank.connections if p.Attr.INTENSITY not in d.attrs)
     asked = {struct.unpack_from("<H", f.payload)[0] for f in pump.received if f.op == p.Op.GET_ATTR_V2}
     assert p.Attr.INTENSITY not in asked, "pumps reject Intensity; asking would cost a failed request"
+
+
+def _as_light(tank, serial: str) -> None:
+    info, adv = tank.seen[serial]
+    tank.seen[serial] = (info, p.Advert(195, adv.serial, PAN, False))
+
+
+async def test_a_pump_bridges_before_a_slightly_stronger_light(coordinator, tank):
+    _as_light(tank, "SERIAL_B")  # B (-60) is a light, A (-70) a pump
+    with patch(f"{MOD}.establish_connection", _mesh_tank(tank, {"SERIAL_B", "SERIAL_V"})):
+        await coordinator._async_update_data()
+    assert tank.attempts == ["AA:AA"], "a light read directly reports mode 50, so the pump bridges"
+
+
+async def test_a_light_bridges_when_no_pump_is_close(coordinator, tank):
+    _as_light(tank, "SERIAL_B")
+    _add_device(tank, "SERIAL_A", "AA:AA", -80)
+    with patch(f"{MOD}.establish_connection", _mesh_tank(tank, {"SERIAL_A", "SERIAL_V"})):
+        await coordinator._async_update_data()
+    assert tank.attempts == ["BB:BB"]
+
+
+async def test_a_bridging_light_keeps_its_mesh_mode(coordinator, tank):
+    _as_light(tank, "SERIAL_B")
+    tank.down.add("AA:AA")  # only the light can bridge
+    connect = tank.connect
+
+    async def light_reports_50(cls, ble_device, name, **kw):
+        dev = await connect(cls, ble_device, name, **kw)
+        dev.attrs[p.Attr.OPERATION_MODE] = struct.pack("<H", 50)
+        return dev
+
+    with patch(f"{MOD}.establish_connection", light_reports_50):
+        data = await coordinator._async_update_data()
+        assert data.devices["SERIAL_B"].operation_mode is None, "50 is not a mode; unknown until read via the mesh"
+        data.devices["SERIAL_B"].operation_mode = 2  # as a mesh read reports it
+        coordinator.data = data
+        data = await coordinator._async_update_data()
+    assert data.devices["SERIAL_B"].operation_mode == 2
