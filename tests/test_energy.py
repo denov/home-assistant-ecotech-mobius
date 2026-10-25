@@ -1,6 +1,7 @@
 """Pump energy (kWh) from motor power, for the Energy dashboard."""
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -60,3 +61,25 @@ def test_long_gap_is_not_counted(sensor):
     c.data = reading(10, 1000.0 + 2 * 3600)  # e.g. Home Assistant was stopped
     s._accumulate()
     assert s.native_value == 0
+
+
+async def test_total_survives_a_restart_while_unavailable(sensor):
+    s, _ = sensor
+    # the last state was "unavailable", but the stored sensor data still holds the number
+    with (
+        patch.object(s, "async_get_last_sensor_data", AsyncMock(return_value=SimpleNamespace(native_value=1.25))),
+        patch.object(s, "async_get_last_state", AsyncMock(return_value=SimpleNamespace(state="unavailable"))),
+    ):
+        await s._restore()
+    assert s.native_value == 1.25
+
+
+async def test_total_restores_from_the_state_of_earlier_versions(sensor):
+    s, _ = sensor
+    # earlier versions saved no sensor data, only the state
+    with (
+        patch.object(s, "async_get_last_sensor_data", AsyncMock(return_value=None)),
+        patch.object(s, "async_get_last_state", AsyncMock(return_value=SimpleNamespace(state="0.5"))),
+    ):
+        await s._restore()
+    assert s.native_value == 0.5

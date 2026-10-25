@@ -17,8 +17,10 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
 - A **tank** device is identified by `tank_<panId>`. Every pump and light hangs off it through `via_device`. The tank device holds:
   - the `scene` sensor (`feed_mode`, `all_off`, `all_on`, … or `none`),
   - `scene_remaining` (duration; 0 when no scene is active),
-  - the `feed_mode` binary sensor,
-  - the buttons `feed_mode`, `all_off`, `all_on` and `resume`.
+  - the `feed_mode` switch: on while Feed mode runs; turning it on starts Feed mode, turning it off resumes the schedule,
+  - the buttons `all_off`, `all_on` and `resume`.
+- The tank's scene comes from the devices read in the latest poll. A reading kept from an earlier poll (see Polling) doesn't count: it may show a scene that has since ended. When no device was read in the latest poll, the scene is unknown.
+- Earlier versions had a `feed_mode` button and binary sensor. Setup removes them from the entity registry.
 - Each pump or light is a device, identified by its serial and named by its own name, or else its model, plus the last 4 characters of the serial. Its entities are:
   - `mode` (OperationMode name; unknown values show as `unknown_<n>`, with `raw` as an attribute). Its icon shows the device type, using Material Design icons that ship with HA (no EcoTech artwork):
     - lights (PrimitiveType 1): `mdi:light-flood-down`,
@@ -56,23 +58,24 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
   - A failed disconnect doesn't lose the reading.
   - The GetOpCodes result is cached per device after the first connection, so later connections skip that round trip.
 
-## Commands (buttons)
+## Commands (switch and buttons)
 
-- A button sends one tank-wide broadcast through one connected device. The firmware relays it over the Thread mesh to the rest of the tank.
-  - Feed mode, All off and All on set `CurrentScene` with the tank group in `rsv0`.
-  - Resume schedule sets `OperationState = 3` (Schedule).
+- A command sends one tank-wide broadcast through one connected device. The firmware relays it over the Thread mesh to the rest of the tank.
+  - Feed mode (switch on), All off and All on set `CurrentScene` with the tank group in `rsv0`.
+  - Resume schedule and Feed mode off set `OperationState = 3` (Schedule).
   - The tank group comes from the last poll, or is read from the device if the integration has none yet.
 - The command tries the device with the strongest signal first, then the next strongest. It stops after 2 connection failures in a row, counting failures from polls just before it. So with a radio path that is down, a press makes one attempt.
 - **A command goes ahead of polling.** It waits for at most the one read that is already under way. It then holds the connection lock for all of its attempts, so poll reads can't run in between.
 - Failure raises `HomeAssistantError("Couldn't <what>: <reason>")`, which the UI shows.
 - Success triggers a refresh, so the scene sensors update.
-- Buttons are always available, because they don't depend on the last poll.
+- If the device reports no tank group (0), the command fails rather than reaching only the connected device: a Set without a group isn't a broadcast.
+- The switch and buttons are always available, because commands don't depend on the last poll. The switch's state is unknown until a poll reads the scene.
 
 ## Energy
 
 - `energy` (kWh, `total_increasing`) integrates motor power over time, between fresh readings only. A kept reading isn't counted twice.
   - Gaps longer than 1 hour (e.g. HA was stopped) add nothing.
-  - The total is restored after a restart.
+  - The total is restored after a restart, even when the pump was unavailable at the time.
 - Voltage and power sensors use the `measurement` state class, so they get long-term statistics.
 
 ## Known gaps

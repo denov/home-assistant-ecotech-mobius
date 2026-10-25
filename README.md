@@ -13,8 +13,10 @@ This custom integration talks directly to [EcoTech Marine](https://ecotechmarine
   - Pumps: flow (GPH), motor power, motor speed, motor and driver temperature, input voltage
   - Lights: the brightness of each colour channel in % (Royal blue, Blue, Violet, UV, Cool white, Warm white, Green, Red, Moonlight, ...), so you can see the colour mix the light runs right now; LED, driver and module temperatures; input voltage
 - Energy dashboard: an **Energy** sensor (kWh) for each pump, counted from its motor power. Input voltage sensors keep long-term statistics. Radion lights don't report power, so they have no energy sensor. A Vectra return pump usually uses the most.
-- Per tank: active scene, scene time remaining, and a Feed Mode sensor
-- Buttons: **Feed mode**, **All off**, **All on** and **Resume schedule**, sent to every device of the tank at once, like the scene tiles in the Mobius app
+- Per tank: active scene and scene time remaining
+- A **Feed mode** switch: turn it on to start Feed mode, off to end it early. It's on while Feed mode runs, whether it was started from Home Assistant or the Mobius app.
+- Buttons: **All off**, **All on** and **Resume schedule** (ends any scene and goes back to the schedule)
+- Every command goes to all devices of the tank at once, like the scene tiles in the Mobius app
 - Reads the whole tank through **one** Bluetooth connection: the device nearest the proxy relays to the others over the tank's own mesh, so a pump under the stand or a light out of range is still read
 - Devices that drop out briefly keep their last reading; they go unavailable only after several failed reads in a row
 - A device that has left the tank can be deleted from its device page
@@ -92,7 +94,7 @@ Mobius devices only say which tank they belong to (and their model and serial) w
 
 ### The Mobius app and Home Assistant
 
-A Mobius device accepts **one Bluetooth connection at a time**. While the Mobius app on your phone is connected to the tank, Home Assistant can't read the device the app is using, and its buttons may fail. The device keeps showing its last reading for a few minutes, then goes unavailable until the app lets go.
+A Mobius device accepts **one Bluetooth connection at a time**. While the Mobius app on your phone is connected to the tank, Home Assistant can't read the device the app is using, and its commands may fail. The device keeps showing its last reading for a few minutes, then goes unavailable until the app lets go.
 
 So when you've finished in the Mobius app, close it fully (swipe it away). Home Assistant reconnects on its next poll, within a minute.
 
@@ -103,7 +105,7 @@ So when you've finished in the Mobius app, close it fully (swipe it away). Home 
 | The tank isn't offered | Is the proxy online in the ESPHome integration with `active: true`? Mobius devices appear as **MOBIUS** under **Settings** → **Bluetooth** → **Advertisement monitor**. Wait a few minutes for an active scan. |
 | One device is unavailable | Is the Mobius app open? Is that device powered? Devices are read through the mesh, so it needn't be near the proxy, but it must be on the same tank in the Mobius app. |
 | Everything is unavailable | Is the proxy online? Move it closer, or add a second proxy on the other side of the tank. If the proxy is online and still sees the devices (Advertisement monitor) but nothing connects, press its **Restart** button. |
-| Buttons fail with "Couldn't …" | The same as above: no device of the tank could be reached in time. Try again once the app is closed. |
+| Commands fail with "Couldn't …" | The same as above: no device of the tank could be reached in time. Try again once the app is closed. |
 
 ## Confirm before All off
 

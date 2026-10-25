@@ -150,17 +150,11 @@
       }
     },
     "binary_sensor": {
-      "feed_mode": {
-        "name": "Feed mode"
-      },
       "problem": {
         "name": "Problem"
       }
     },
     "button": {
-      "feed_mode": {
-        "name": "Feed mode"
-      },
       "all_off": {
         "name": "All off"
       },
@@ -169,6 +163,11 @@
       },
       "resume": {
         "name": "Resume schedule"
+      }
+    },
+    "switch": {
+      "feed_mode": {
+        "name": "Feed mode"
       }
     }
   }

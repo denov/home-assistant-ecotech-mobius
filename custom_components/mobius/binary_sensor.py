@@ -5,14 +5,11 @@ from homeassistant.components.binary_sensor import BinarySensorDeviceClass, Bina
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import protocol as p
-from .entity import MobiusConfigEntry, MobiusDeviceEntity, MobiusRuntimeData, MobiusTankEntity
+from .entity import MobiusConfigEntry, MobiusDeviceEntity, MobiusRuntimeData
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: MobiusConfigEntry, async_add_entities: AddEntitiesCallback):
     data = entry.runtime_data
-    async_add_entities([FeedModeSensor(data)])
-
     added: set[str] = set()
 
     @callback
@@ -25,21 +22,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: MobiusConfigEntry, async
 
     discover()
     entry.async_on_unload(data.coordinator.async_add_listener(discover))
-
-
-class FeedModeSensor(MobiusTankEntity, BinarySensorEntity):
-    _attr_icon = "mdi:fish"
-
-    def __init__(self, data: MobiusRuntimeData) -> None:
-        super().__init__(data, "feed_mode")
-
-    @property
-    def is_on(self) -> bool | None:
-        data = self.coordinator.data
-        scene = data.scene if data else None
-        if scene is None:
-            return None
-        return scene.active and scene.scene_id == p.SceneId.FEED_MODE
 
 
 class ProblemSensor(MobiusDeviceEntity, BinarySensorEntity):

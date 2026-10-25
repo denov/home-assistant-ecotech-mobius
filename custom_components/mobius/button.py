@@ -10,7 +10,6 @@ from .entity import MobiusConfigEntry, MobiusRuntimeData, MobiusTankEntity
 
 # key -> (what, icon, scene id or None for "back to schedule")
 BUTTONS: dict[str, tuple[str, str, int | None]] = {
-    "feed_mode": ("start feed mode", "mdi:fish", p.SceneId.FEED_MODE),
     "all_off": ("turn everything off", "mdi:power-off", p.SceneId.ALL_OFF),
     "all_on": ("turn everything on", "mdi:power", p.SceneId.ALL_ON),
     "resume": ("resume the schedule", "mdi:calendar-clock", None),
@@ -22,7 +21,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MobiusConfigEntry, async
 
 
 class SceneButton(MobiusTankEntity, ButtonEntity):
-    """Tank-wide scene broadcast, like the scene tiles on the app's dashboard."""
+    """Tank-wide scene broadcast, like the scene tiles on the app's dashboard. Feed mode is a switch."""
 
     def __init__(self, data: MobiusRuntimeData, key: str) -> None:
         super().__init__(data, key)

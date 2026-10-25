@@ -55,6 +55,8 @@ class Tank:
         self.log: list[str] = []
         self.gate: dict[str, asyncio.Event] = {}
         self.disconnect_error = False
+        # address -> attributes that differ from device_attrs()
+        self.attrs: dict[str, dict[int, bytes]] = {}
 
     async def connect(self, _cls, ble_device, _name, **_kw):
         addr = ble_device.address
@@ -63,7 +65,7 @@ class Tank:
             await self.gate[addr].wait()
         if addr in self.down:
             raise BleakError(f"{addr} timed out")
-        dev = FakeDevice(device_attrs(addr.encode()))
+        dev = FakeDevice(device_attrs(addr.encode()) | self.attrs.get(addr, {}))
 
         async def disconnect():
             # log what this connection was for, in the order connections finish
@@ -413,3 +415,25 @@ async def test_a_bridging_light_keeps_its_mesh_mode(coordinator, tank):
         coordinator.data = data
         data = await coordinator._async_update_data()
     assert data.devices["SERIAL_B"].operation_mode == 2
+
+
+async def test_kept_reading_does_not_decide_the_tank_scene(coordinator, tank):
+    tank.attrs["BB:BB"] = {p.Attr.CURRENT_SCENE: struct.pack("<HH", p.SceneId.FEED_MODE, 0),
+                           p.Attr.SCENE_TIMER: struct.pack("<H", 500)}
+    coordinator.data = await coordinator._async_update_data()
+    assert coordinator.data.scene.name == "feed_mode"
+    # Feed mode ended, but B can't be read: its kept reading still says feed mode
+    tank.down.add("BB:BB")
+    coordinator.data = await coordinator._async_update_data()
+    assert coordinator.data.devices["SERIAL_B"].kept
+    assert not coordinator.data.devices["SERIAL_A"].kept
+    assert coordinator.data.scene.name == "none"
+
+
+async def test_command_without_a_tank_group_is_not_sent(coordinator, tank):
+    no_group = {p.Attr.GROUP_BITMAP: struct.pack("<Q", 0b1)}
+    tank.attrs = {"AA:AA": no_group, "BB:BB": no_group}
+    with pytest.raises(HomeAssistantError, match="tank group"):
+        await _feed(coordinator)
+    sets = [f for d in tank.connections for f in d.received if f.op in (p.Op.SET_ATTR_V1, p.Op.SET_ATTR_V2)]
+    assert sets == [], "a Set without a group reaches only the connected device"

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 import logging
 import time
@@ -77,6 +77,8 @@ class DeviceState:
     intensity: dict[int, int] = field(default_factory=dict)
     # time.monotonic() of the read; a reading kept through failed polls keeps its old time
     read_at: float = 0.0
+    # kept from an earlier poll because this one couldn't read the device
+    kept: bool = False
 
     @property
     def is_light(self) -> bool:
@@ -89,8 +91,11 @@ class TankData:
 
     @property
     def scene(self) -> SceneState | None:
-        """The tank's scene: scenes are broadcast, so the longest-running one wins."""
-        scenes = [d.scene for d in self.devices.values() if d.scene is not None]
+        """The tank's scene: scenes are broadcast, so the longest-running one wins.
+
+        Kept readings don't count: their scene may have ended since.
+        """
+        scenes = [d.scene for d in self.devices.values() if d.scene is not None and not d.kept]
         active = [s for s in scenes if s.active]
         if active:
             return max(active, key=lambda s: s.timer)
@@ -343,7 +348,7 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
         failures = self._failures[serial] = self._failures.get(serial, 0) + 1
         _LOGGER.debug("%s: read failed (%d in a row): %s", serial, failures, why)
         if failures < UNAVAILABLE_AFTER_FAILURES and serial in last:
-            devices[serial] = last[serial]
+            devices[serial] = replace(last[serial], kept=True)
 
     async def async_tank_command(self, what: str, action: Callable[[MobiusClient, int], Awaitable[None]]) -> None:
         """Send a tank-wide broadcast through the strongest connectable device, else the next."""
@@ -381,6 +386,9 @@ def _strongest(seen: dict[str, tuple[Seen, p.Advert]]) -> list[tuple[Seen, p.Adv
 
 async def _broadcast(client: MobiusClient, action, data: TankData | None) -> None:
     group = (data.group if data else 0) or await client.tank_group()
+    if not group:
+        # without a group the Set isn't a broadcast: only the connected device would change
+        raise p.ProtocolError("the device reports no tank group")
     await action(client, group)
 
 

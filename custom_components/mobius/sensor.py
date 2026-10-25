@@ -3,11 +3,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from homeassistant.components.sensor import RestoreSensor, SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfEnergy, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import protocol as p
 from .const import CHANNELS, OPERATION_MODES, PHYSICAL_SENSORS
@@ -175,7 +174,7 @@ class ChannelSensor(MobiusDeviceEntity, SensorEntity):
         return value / 10 if value is not None else None
 
 
-class MotorEnergySensor(MobiusDeviceEntity, RestoreEntity, SensorEntity):
+class MotorEnergySensor(MobiusDeviceEntity, RestoreSensor):
     """kWh from motor power over time, for the Energy dashboard (like ha-apex's energy sensors)."""
 
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -193,7 +192,15 @@ class MotorEnergySensor(MobiusDeviceEntity, RestoreEntity, SensorEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        state = await self.async_get_last_state()
+        await self._restore()
+
+    async def _restore(self) -> None:
+        """The last total. The sensor data holds it even when the state was unavailable."""
+        data = await self.async_get_last_sensor_data()
+        if data is not None and data.native_value is not None:
+            self._kwh = float(data.native_value)
+            return
+        state = await self.async_get_last_state()  # earlier versions saved only the state
         try:
             self._kwh = float(state.state) if state else 0.0
         except ValueError:
