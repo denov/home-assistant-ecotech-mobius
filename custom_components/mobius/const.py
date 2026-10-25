@@ -23,7 +23,7 @@ SCAN_INTERVAL_SECONDS = 60
 # a device that hasn't advertised for this long is left out of polls
 STALE_ADVERT_SECONDS = 300
 
-# OperationMode (attribute 105) names, from M.OperationMode in the app.
+# OperationMode (attribute 105) names. The values seen on a real tank are in docs/02.
 OPERATION_MODES: dict[int, str] = {
     0: "oob",
     1: "basic",
@@ -79,7 +79,7 @@ PHYSICAL_SENSORS: dict[int, tuple[str, str | None, str | None]] = {
     PhysicalValue.CLUSTER2_TEMPERATURE: ("cluster2_temperature", UnitOfTemperature.CELSIUS, "temperature"),
 }
 
-# Light colour channels (M.VisualID) -> sensor key suffix. Brightness (1) is a master
+# Light colour channel ids (docs/02) -> sensor key suffix. Brightness (1) is a master
 # dimmer, not a colour, so it gets no sensor.
 CHANNELS: dict[int, str] = {
     16: "cool_white",

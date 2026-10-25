@@ -19,7 +19,7 @@ from . import protocol as p
 _LOGGER = logging.getLogger(__name__)
 
 DIRECT_TIMEOUT = 5.0
-# relayed reads answer in ~0.5 s (docs/02); the app waits 20 s, too long for a poll
+# relayed reads answer in ~0.5 s (docs/02), so a device that's off the mesh can't stall a poll
 COAP_TIMEOUT = 5.0
 
 
@@ -158,7 +158,7 @@ class MobiusClient:
             cleanup = lambda: self._coap_pending.pop(token, None)  # noqa: E731
 
         try:
-            # One retry, like BaseConnection.requestTimeout.
+            # One retry: a lost notification shouldn't fail the read.
             for attempt in range(2):
                 await self._write(data)
                 try:
@@ -224,13 +224,13 @@ class MobiusClient:
         )
 
     async def start_scene(self, scene_id: int, group: int) -> None:
-        """Tank-wide scene broadcast (SceneCollectionView.onItemClick)."""
+        """Tank-wide scene broadcast (docs/02, Control)."""
         await self.set_attrs(
             [(p.Attr.CURRENT_SCENE, 0, [struct.pack("<HH", scene_id, 0)])], group=group
         )
 
     async def exit_scene(self, group: int) -> None:
-        """Back to schedule for the whole tank (SceneCollectionView.exitSceneBroadcast)."""
+        """Back to schedule for the whole tank (docs/02, Control)."""
         await self.set_attrs(
             [(p.Attr.OPERATION_STATE, 0, [bytes([p.OperationState.SCHEDULE])])], group=group
         )

@@ -1,152 +1,144 @@
 # 01 — BLE transport
 
-Source: jadx decompile at `~/app-decompiled/sources`. All paths below are relative to `com/c2/comm/`.
+How a Mobius device talks over Bluetooth Low Energy. This was worked out by watching traffic between Home Assistant and real devices through an ESPHome proxy (`tools/mobius_cli.py -v` logs every frame in hex). The devices tested are listed in [02](02-attributes-and-control.md#test-tank).
 
 ## Topology
 
-- The phone connects over BLE to **one** device in a tank group (any device with the same `panId`).
-- That device forwards requests to the other devices over the **Thread mesh**, addressed by each device's 16-byte mesh-local IPv6 address.
-- Routing lives in `Comm.sendRequest` (`Comm.java:~60-170`):
-  - target == connected device → send the FSCI frame directly
-  - otherwise, if the target's IPv6 is known → wrap it in a CoAP-relay frame (below) and send it to the connected device
-  - a cloud route (`McpDeviceRequest` via `CloudManager`) also exists; see doc 04
-- **No pairing, bonding, encryption or passcode at the transport layer** was found. Any app-level passcode is still to be checked (settings/passcode).
+- Every device of a tank is on one **Thread mesh**. The mesh is identified by its `panId`, which is in each device's advert.
+- A client connects over BLE to **one** device of the tank (the *bridge*).
+- Requests for the bridge itself are sent to it directly.
+- Requests for any other device of the tank are wrapped in a **CoAP relay** frame (below), addressed to the target's mesh-local IPv6. The bridge forwards them over the mesh and passes the answer back.
+- No pairing, bonding or encryption is needed. The devices accept a plain connection and answer requests straight away.
 
-## Discovery (advertisements)
+## Advertisements
 
-- The app scans with **no filter** (`bluetooth/BluetoothService.java:98`) and identifies devices from AD type `0xFF` (manufacturer specific), `bluetooth/Peripheral.java:getManufacturerData`.
-- The app parses the **whole** AD payload, including the 2 bytes BLE treats as the company id. In Home Assistant / bleak terms, `manufacturer_data` is `{company_id: rest}` with `company_id = b[0] | b[1] << 8`. So `b[0]` (format version) and `b[1]` (flags) show up as the "company id". Rebuild `b = company_id.to_bytes(2, "little") + rest` before parsing.
+- The **passive** advert has only the flags, the 128-bit service UUID `01ff0100-ba5e-f4ee-5ca1-eb1e5e4b1ce0` and the local name `MOBIUS`.
+- The model, serial and panId are in the **scan response**, so they only show up with **active** scanning.
+- They're in manufacturer-specific data (AD type `0xFF`), and the device uses the **whole** AD payload as its own data. The first 2 bytes, which BLE treats as the company id, are really a format byte and a flags byte. Home Assistant and bleak report the data as `{company_id: rest}` with `company_id = b[0] | b[1] << 8`. Rebuild `b = company_id.to_bytes(2, "little") + rest` before parsing.
 
-`Peripheral.parseManufactureData(b)` handles these formats (all integers little-endian):
+`b` layouts the integration accepts (all integers little-endian):
 
 | len(b) | b[0] | layout |
 |---|---|---|
-| 19 | 1 | `[1]` pendingNotif, `[2:4]` model u16, `[4:8]` epoch u32, `[8:12]` devSpecific i32, `[12:14]` panId, `[14:19]` serial (hex) |
-| 16 | 1 | `[1]` pendingNotif, `[2:4]` model, `[5:9]` devSpecific, `[9:11]` panId, `[11:16]` serial (hex) |
-| 18/25/28 | 2 | `[1]` flags, `[2:4]` model, `[5:9]` devSpecific, `[9:11]` panId, `[11:25]` serial ASCII |
-| 18/25/28 | 1 | `[1]` pendingNotif, `[2:4]` model, `[5:9]` devSpecific, `[9:11]` panId, serial = decimal-formatted bytes 11..17 (len 18) or ASCII 11..25 |
-| 12 | – | legacy: model = `b[2]`, decimal serial from bytes 3..9 |
+| 18 / 25 / 28 | 2 | `[1]` flags, `[2:4]` model u16, `[5:9]` device-specific i32, `[9:11]` panId u16, `[11:25]` serial, ASCII |
+| 18 / 25 / 28 | 1 | `[1]` pending notifications, `[2:4]` model, `[5:9]` device-specific, `[9:11]` panId, serial = ASCII `[11:25]`, or decimal-formatted from bytes 11–17 when len is 18 |
+| 19 | 1 | `[1]` pending notifications, `[2:4]` model, `[4:8]` epoch u32, `[8:12]` device-specific, `[12:14]` panId, `[14:19]` serial as hex |
+| 16 | 1 | `[1]` pending notifications, `[2:4]` model, `[5:9]` device-specific, `[9:11]` panId, `[11:16]` serial as hex |
 
-Flags byte (format 2): bit0 pendingNotifications, bit1 **set = NOT legacy**, bit2 installing, bit3 manualDiscovery, bit4 hasError.
+Flags byte (format 2): bit 1 is set on current devices (clear = legacy firmware); bit 4 is set while the device reports an error. The integration doesn't use the other bits.
 
-Legacy devices are only offered a firmware update in the app (`mobius/legacy/*`). There is no separate legacy control protocol to implement.
+Model ids seen on tested devices: 42 (VorTech MP40w G3 QD), 149 (Vectra L2) and 195 (a current-generation Radion). The full list the integration names is `MODELS` in `protocol.py`.
 
-Relevant models (`M.Model`, `M.java:1543`):
-
-| id | model |
-|---|---|
-| 10, 11 | VorTech MP10w ES / QD |
-| 40, 41, 42 | VorTech MP40w ES / QD / G3 QD |
-| 60, 61 | VorTech MP60w ES / QD |
-| 30–37, 39 | Radion XR30w (G1…G4 Pro, FW Pro, prototype) |
-| 160–163, 175 | Radion XR15w (G3 Pro, FW, G4 Pro, FW Pro, prototype) |
-| 176, 177 | Radion XR15 G5 Pro / G5 Blue |
-| 192, 193 | Radion XR30 G5 Pro / G5 Blue |
-| 144–149 | Vectra M1, L1, S1, S2, M2, L2 |
-
-`panId` groups devices into one mesh network (= one tank), so one BLE connection per panId is enough.
-
-## GATT (`bluetooth/PeripheralConnection.java:45-59`)
+## GATT
 
 | UUID | Role |
 |---|---|
-| `01FF0100-BA5E-F4EE-5CA1-EB1E5E4B1CE0` | General service |
-| `01FF0101-…` RX_DATA | notify: device→phone, non-final chunk |
-| `01FF0102-…` RX_FINAL | notify: device→phone, final chunk (end of frame) |
-| `01FF0103-…` TX_DATA | write w/o response: phone→device, non-final chunk |
-| `01FF0104-…` TX_FINAL | write w/o response: phone→device, final chunk |
-| `01FF5550-…` | OTAP service (firmware update; ignore) |
-| `0000180A-…` | Device Information (2A29 mfr, 2A24 model, 2A25 serial, 2A27 hw, 2A26 fw) |
+| `01FF0100-BA5E-F4EE-5CA1-EB1E5E4B1CE0` | Mobius service |
+| `01FF0101-…` RX_DATA | notify: device → client, a chunk that isn't the last |
+| `01FF0102-…` RX_FINAL | notify: device → client, the last chunk of a frame |
+| `01FF0103-…` TX_DATA | write without response: client → device, a chunk that isn't the last |
+| `01FF0104-…` TX_FINAL | write without response: client → device, the last chunk of a frame |
+| `0000180A-…` | standard Device Information service |
+
+The device also has a firmware update service (`01FF5550-…`), which the integration leaves alone.
 
 Connection sequence:
-1. Connect, then request MTU 500 (`requestMtu(ServiceStarter.ERROR_UNKNOWN)` = 500).
-2. Discover services, then enable notifications (CCCD `0x2902` = `01 00`) on RX_DATA, then RX_FINAL (and indications on OTAP command if present).
-3. Read the Device Information characteristics.
-4. Send a Get-attribute request for `MeshLocalAddresses` to learn the connected device's own IPv6.
+1. Connect. The BLE stack (or the ESPHome proxy) negotiates the MTU.
+2. Enable notifications on RX_DATA and RX_FINAL.
+3. Send requests.
 
-Chunking (`sendRequest`, line ~90): split the frame into `MTU`-sized pieces. The app uses **20** unless the MTU callback raised it. Write every piece except the last to TX_DATA and the last to TX_FINAL. A frame that fits in one chunk goes straight to TX_FINAL. Each write waits for `onCharacteristicWrite` before the next one.
+**Sending:** split the frame into chunks of at most `MTU − 3` bytes (at least 20). Write every chunk except the last to TX_DATA, and the last one to TX_FINAL. A frame that fits in one chunk goes straight to TX_FINAL.
 
-Reassembly: append RX_DATA notifications to a buffer. On RX_FINAL, append, parse the whole buffer as one frame, then clear it.
+**Receiving:** append each RX_DATA notification to a buffer. On RX_FINAL, append it, decode the whole buffer as one frame, then clear the buffer.
 
-## FSCI frame (`requests/Request.java:getData`, `FsciHelper.java`)
+A device accepts **one BLE connection at a time**. While the phone app is connected, other clients can't connect to that device.
+
+## Frame
 
 ```
 offset size  field
 0      1     sync = 0x02
 1      1     opGroup
 2      1     opCode
-3      2     messageId  (u16 LE, app counter 1..19999)
-5      1     rsv0: bits0-1 FSCI instance, bits2-7 group
-6      1     rsv1: bit0 = do-not-respond, bit1 = superuser
+3      2     messageId  (u16 LE, chosen by the client; the integration counts 1..19999)
+5      1     rsv0: bits 0-1 instance, bits 2-7 group (see 02, Control)
+6      1     rsv1: bit 0 = do not respond
 7      2     payload length (u16 LE)
 9      n     payload
-9+n    2     CRC16 (LE) over bytes [1 .. 9+n)  (opGroup through payload)
+9+n    2     CRC16 (LE) over bytes [1 .. 9+n), i.e. opGroup through payload
 ```
 
-CRC: CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF, no reflection, no xorout) (`utilities/Crc.java`).
+CRC: CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF, not reflected, no final xor). The CRC of every frame received from a device checks out with this.
 
-Op groups (`M.java:55-62`):
+Op groups:
 
-| value | name |
+| value | meaning |
 |---|---|
-| `0xDE` | C2CI_Request (app protocol requests) |
-| `0xDF` | C2CI_Confirm (responses to `0xDE`) |
-| `0xCE` / `0xCF` | FSCI_Request / Confirm (NXP Thread stack commands) |
-| `0xBE` / `0xBF` | QOTAP request / confirm (firmware update) |
+| `0xDE` | request |
+| `0xDF` | confirm: the answer to a `0xDE` request, with the same opCode |
+| `0xCE` / `0xCF` | Thread stack request / confirm. The integration ignores these |
 
-A response matches a request when `(opGroup, opCode) == request.(copGroup, copCode)` **and** messageId is equal. For `0xCF` the messageId isn't checked (`BaseConnection.handleBytes`).
+A response belongs to a request when its opGroup is `0xDF`, its opCode equals the request's, and its messageId is the same.
 
-The app allows at most 4 outstanding requests, one per destination address. Timeout is 5 s for direct requests and 20 s for CoAP-relayed ones, with one retry before failing.
+The integration sends one request at a time per connection. It waits 5 s for an answer and retries once.
 
-## Attribute opcodes (C2CI, group `0xDE`/`0xDF`)
+## Opcodes (group `0xDE` / `0xDF`)
 
-| op | meaning | used when |
-|---|---|---|
-| 23 (`0x17`) | Get attributes, 1-byte index/count | device lacks op 28 |
-| 28 (`0x1C`) | Get attributes, 2-byte index/count | in `supportedOpCodes` |
-| 24 (`0x18`) | Set attributes, 1-byte fields | device lacks op 29 |
-| 29 (`0x1D`) | Set attributes, 2-byte fields | in `supportedOpCodes` |
-| 37 / 32 | Get attribute element counts | |
-| 25 (`0x19`) | CoAP relay request | |
-| 26 (`0x1A`) | CoAP relay response / indication (device→phone) | |
+| op | meaning |
+|---|---|
+| 23 (`0x17`) | Get attributes, 1-byte index / count / length |
+| 24 (`0x18`) | Set attributes, 1-byte index / count / length |
+| 25 (`0x19`) | CoAP relay request |
+| 26 (`0x1A`) | CoAP relay response (device → client) |
+| 28 (`0x1C`) | Get attributes, 2-byte index / count / length |
+| 29 (`0x1D`) | Set attributes, 2-byte index / count / length |
+| 41 (`0x29`) | Get supported opcodes |
 
-`supportedOpCodes` comes from `GetOpCodesRequest`; see doc 02.
+**Get supported opcodes** has an empty payload. Its answer is `status u8 | u16 | count u16 | count × opcode u8`. If the list holds `0x1C` / `0x1D`, the 2-byte variants can be used; otherwise use `0x17` / `0x18`. Every tested device answered with status `0xFF` and no list, and the 1-byte variants work on all of them. The 2-byte variants haven't been seen in use.
 
-### Get (op 28) payload, repeated per attribute
-`attrId u16 | startIndex u16 | count u16` (op 23: `attrId u16 | idx u8 | count u8`)
+### Get payload, repeated per attribute
+Op 23: `attrId u16 | startIndex u8 | count u8`. Op 28: `attrId u16 | startIndex u16 | count u16`.
 
-### Get response data (`responses/GetC2AttrFsciResponse.java`)
-`status u8` then repeated `attrId u16 | index | count | elemLen | count × elemLen bytes` (index/count/len are u16 for op 28 and u8 for op 23). Status 0 = success.
+Several attributes can be asked for in one request. A count of all ones (`0xFF` / `0xFFFF`) asks for every element.
 
-### Set (op 29) payload, repeated
-`attrId u16 | startIndex u16 | count u16 | elemLen u16 | count × elemLen bytes` (elements zero-padded to the longest). Op 24 uses u8 for index/count/len.
+### Get response
+`status u8`, then, repeated: `attrId u16 | startIndex | count | elemLen | count × elemLen bytes`. Index, count and length are u8 for op 23 and u16 for op 28.
 
-## CoAP relay (`requests/coap/CoapRequest.java`, `responses/coap/CoapResponse.java`)
+- Status 0 = success. The status codes the integration names are `Status` in `protocol.py`; 7 (unsupported attribute) is the one seen in practice.
+- An array attribute can come back as several blocks of the same `attrId`, each with its own start index (e.g. `PhysicalValues`, doc 02).
 
-Request: an outer FSCI frame `DE 19` whose payload is:
+### Set payload, repeated per attribute
+Op 24: `attrId u16 | startIndex u8 | count u8 | elemLen u8 | count × elemLen bytes`. Op 29: the same with u16 index / count / length.
+
+The answer is `status u8` followed by 2 more bytes (`00 ffff` seen), which the integration doesn't use.
+
+## CoAP relay
+
+Request: a `DE 19` frame whose payload is:
 ```
-16  target mesh-local IPv6, byte-REVERSED
-4   token (i32 LE, app counter from 101)
-2   method (1 GET, 2 POST, 3 PUT, 4 DELETE)   app always sends GET for relayed frames
-2   inner length
-1   CoAP type (0 Con, 1 Non, 2 Ack, 3 Rst)    app uses Con
-n   inner = a complete FSCI frame (02 … crc) for the target device
+16  target mesh-local IPv6, byte-reversed
+4   token (i32 LE, chosen by the client)
+2   method (1 = GET)
+2   inner length (u16 LE)
+1   CoAP type (0 = confirmable)
+n   inner = a complete frame (02 … crc) for the target device
 ```
 
-Response: arrives as an unsolicited `DF 1A` frame. Payload:
+The bridge first answers with a `DF 19` frame of its own, which only says the relay was accepted. The integration ignores it.
+
+Response: a separate, unsolicited `DF 1A` frame from the bridge. Its payload is:
 ```
-16  source IPv6        (TODO: confirm byte order against a capture)
-4   token (matches the request)
-2   CoAP response code (205 content, 404 …)
+16  source IPv6
+4   token, the same as in the request
+2   CoAP response code
 2   inner length
 1   type
-n   inner FSCI frame (the target's DF xx response)
+n   inner = the target's complete DF frame
 ```
 
-## Unsolicited frames
-- `DF 1A` with no matching token: an indication from a mesh device. Its inner frame is processed like any response (e.g. attribute change pushes).
-- `CF 50..55`: Thread network events (scan/create/join/commissioning). Not needed.
-- Device-initiated `DE`/`CE` requests are logged and ignored (`respond()` is a no-op).
+The integration matches a response to its request by the token, then decodes the inner frame like a direct answer. It hasn't needed the source address, so its byte order isn't confirmed.
+
+Relayed reads answer in 0.3–0.5 s per device. A relayed request to the bridge itself gets no answer: read the bridge directly.
 
 ## Python reference
 
@@ -161,11 +153,11 @@ def crc16(data: bytes, crc: int = 0xFFFF) -> int:
             crc &= 0xFFFF
     return crc
 
-def fsci_encode(group: int, op: int, msg_id: int, payload: bytes, rsv=b"\x00\x00") -> bytes:
+def frame_encode(group: int, op: int, msg_id: int, payload: bytes, rsv=b"\x00\x00") -> bytes:
     body = struct.pack("<BBH2sH", group, op, msg_id, rsv, len(payload)) + payload
     return b"\x02" + body + struct.pack("<H", crc16(body))
 
-def fsci_decode(frame: bytes):
+def frame_decode(frame: bytes):
     assert frame[0] == 0x02
     group, op, msg_id, rsv, n = struct.unpack_from("<BBH2sH", frame, 1)
     payload = frame[9:9 + n]
@@ -177,5 +169,5 @@ def coap_wrap(ipv6: bytes, token: int, inner: bytes) -> bytes:
     return ipv6[::-1] + struct.pack("<iHHB", token, 1, len(inner), 0) + inner
 ```
 
-Example: Get `MeshLocalAddresses` (id from doc 02) with op 23, msgId 1:
-`fsci_encode(0xDE, 0x17, 1, struct.pack("<HBB", ATTR_ID, 0, 1))`.
+Example: get `MeshLocalAddresses` (1005, doc 02), all elements, with op 23 and messageId 1:
+`frame_encode(0xDE, 0x17, 1, struct.pack("<HBB", 1005, 0, 0xFF))`.

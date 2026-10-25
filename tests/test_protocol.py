@@ -1,4 +1,4 @@
-"""Tests for the Mobius wire protocol, checked against the decompiled app's behavior."""
+"""Tests for the Mobius wire protocol (docs/01, docs/02)."""
 
 import struct
 
@@ -11,11 +11,11 @@ def test_crc16_ccitt_false_check_value():
     assert p.crc16(b"123456789") == 0x29B1
 
 
-def test_crc16_matches_java_table():
-    # First entries of Crc.crc16_table: the CRC of a single byte b with init 0 is table[b].
-    java = [0, 4129, 8258, 12387, 16516, 20645, 24774, 28903, -32504, -28375]
-    for b, expected in enumerate(java):
-        assert p.crc16(bytes([b]), 0) == expected & 0xFFFF
+def test_crc16_table_entries():
+    # The CRC of a single byte b with init 0 is entry b of the standard 0x1021 table.
+    table = [0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50A5, 0x60C6, 0x70E7, 0x8108, 0x9129]
+    for b, expected in enumerate(table):
+        assert p.crc16(bytes([b]), 0) == expected
 
 
 def test_frame_roundtrip():
@@ -55,7 +55,7 @@ def test_feed_mode_frame_matches_doc_example():
 def test_get_payload_narrow_and_wide():
     assert p.get_attrs_payload([(1005, 0, 1)], wide=False).hex() == "ed030001"
     assert p.get_attrs_payload([(1005, 0, 1)], wide=True).hex() == "ed0300000100"
-    # count -1 (all elements) as the app sends it
+    # count 0xFFFF asks for every element
     assert p.get_attrs_payload([(400, 0, 0xFFFF)], wide=True).hex() == "90010000ffff"
 
 
@@ -123,7 +123,7 @@ def test_coap_unwrap():
 
 
 def test_tank_group():
-    assert p.tank_group(0b11) == 2  # createGroupBitmap(2)
+    assert p.tank_group(0b11) == 2  # group 2: bit 0 plus bit 1
     assert p.tank_group((1 << 4) | 1) == 5
     assert p.tank_group(1) == 0
 

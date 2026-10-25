@@ -149,7 +149,7 @@ MODELS: dict[int, str] = {
     177: "Radion XR15 G5 Blue",
     192: "Radion XR30 G5 Pro",
     193: "Radion XR30 G5 Blue",
-    195: "Radion (model 195)",  # codename only in the app; seen on a user's tank 2026-10-17
+    195: "Radion (model 195)",  # seen on a user's tank 2026-10-17; product name unknown
 }
 
 
@@ -158,7 +158,7 @@ class ProtocolError(Exception):
 
 
 def crc16(data: bytes, crc: int = 0xFFFF) -> int:
-    """CRC-16/CCITT-FALSE, as in com.c2.comm.utilities.Crc.crc16."""
+    """CRC-16/CCITT-FALSE over opGroup through payload (docs/01)."""
     for b in data:
         crc ^= b << 8
         for _ in range(8):
@@ -201,7 +201,7 @@ class Frame:
         return cls(group, op, msg_id, bytes(data[9 : 9 + length]), rsv0, rsv1)
 
     def set_group(self, group: int) -> None:
-        """Tank group broadcast bits, as in Request.setGroup."""
+        """Tank group broadcast bits (docs/02, Control)."""
         if not 0 <= group < 64:
             raise ValueError(group)
         self.rsv0 = (self.rsv0 & 0x03) | (group << 2)
@@ -268,7 +268,7 @@ class AttrValue:
 
 
 def parse_get_response(data: bytes, wide: bool) -> tuple[int, dict[int, AttrValue]]:
-    """Parse a GetC2Attr confirm payload into (status, {attr: value})."""
+    """Parse a Get attributes confirm payload into (status, {attr: value})."""
     if not data:
         raise ProtocolError("empty get response")
     status = data[0]
@@ -370,7 +370,7 @@ def text(b: bytes) -> str:
 
 
 def tank_group(bitmap: int) -> int:
-    """Tank.parseGroupBitmap: lowest set bit at positions 2..31 (1-based)."""
+    """Tank group: lowest set bit at positions 2..31, 1-based (docs/02)."""
     for g in range(2, 32):
         if bitmap & (1 << (g - 1)):
             return g
@@ -413,7 +413,7 @@ class Advert:
 
 
 def parse_advert(manufacturer_data: dict[int, bytes]) -> Advert | None:
-    """Parse HA/bleak manufacturer_data. The app treats the "company id" as payload bytes."""
+    """Parse HA/bleak manufacturer_data. The "company id" bytes are really part of the payload (docs/01)."""
     for company_id, rest in manufacturer_data.items():
         b = company_id.to_bytes(2, "little") + bytes(rest)
         adv = _parse_raw_advert(b)
@@ -423,7 +423,7 @@ def parse_advert(manufacturer_data: dict[int, bytes]) -> Advert | None:
 
 
 def _parse_raw_advert(b: bytes) -> Advert | None:
-    """Peripheral.parseManufactureData."""
+    """The scan response layouts in docs/01."""
     n = len(b)
     if n == 19 and b[0] == 1:
         model, _epoch, spec, pan = struct.unpack_from("<HIiH", b, 2)
