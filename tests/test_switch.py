@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.mobius import protocol as p, remove_old_feed_mode_entities
+from custom_components.mobius import migrate_feed_mode_entities, protocol as p
 from custom_components.mobius.client import SceneState
 from custom_components.mobius.const import CONF_PAN_ID, DOMAIN
 from custom_components.mobius.coordinator import DeviceState, TankData
@@ -78,7 +78,33 @@ async def test_setup_removes_the_old_feed_mode_button_and_sensor(hass):
     for domain in ("button", "binary_sensor"):
         reg.async_get_or_create(domain, DOMAIN, "tank_405f_feed_mode", config_entry=entry)
     other = reg.async_get_or_create("button", DOMAIN, "tank_405f_all_off", config_entry=entry)
-    remove_old_feed_mode_entities(hass, 0x405F)
+    migrate_feed_mode_entities(hass, entry, 0x405F)
     assert reg.async_get_entity_id("button", DOMAIN, "tank_405f_feed_mode") is None
     assert reg.async_get_entity_id("binary_sensor", DOMAIN, "tank_405f_feed_mode") is None
     assert reg.async_get(other.entity_id) is not None
+
+
+async def test_switch_takes_over_the_old_button_entity_id(hass):
+    # since HA 2026.10 a new entity's ID starts with its area: switch.tank_mobius_tank_405f_feed_mode
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_PAN_ID: 0x405F}, unique_id="405f")
+    entry.add_to_hass(hass)
+    reg = er.async_get(hass)
+    reg.async_get_or_create(
+        "button", DOMAIN, "tank_405f_feed_mode", config_entry=entry, suggested_object_id="mobius_tank_405f_feed_mode"
+    )
+    migrate_feed_mode_entities(hass, entry, 0x405F)
+    assert reg.async_get_entity_id("switch", DOMAIN, "tank_405f_feed_mode") == "switch.mobius_tank_405f_feed_mode"
+
+
+async def test_existing_switch_keeps_its_entity_id(hass):
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_PAN_ID: 0x405F}, unique_id="405f")
+    entry.add_to_hass(hass)
+    reg = er.async_get(hass)
+    reg.async_get_or_create(
+        "switch", DOMAIN, "tank_405f_feed_mode", config_entry=entry, suggested_object_id="my_feed_switch"
+    )
+    reg.async_get_or_create(
+        "button", DOMAIN, "tank_405f_feed_mode", config_entry=entry, suggested_object_id="mobius_tank_405f_feed_mode"
+    )
+    migrate_feed_mode_entities(hass, entry, 0x405F)
+    assert reg.async_get_entity_id("switch", DOMAIN, "tank_405f_feed_mode") == "switch.my_feed_switch"

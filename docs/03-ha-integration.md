@@ -21,6 +21,8 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
   - the buttons `all_off`, `all_on` and `resume`.
 - The tank's scene comes from the devices read in the latest poll. A reading kept from an earlier poll (see Polling) doesn't count: it may show a scene that has since ended. When no device was read in the latest poll, the scene is unknown.
 - Earlier versions had a `feed_mode` button and binary sensor. Setup removes them from the entity registry.
+  - The switch takes over the button's entity ID, in the `switch` domain (`button.mobius_tank_405f_feed_mode` → `switch.mobius_tank_405f_feed_mode`), so it matches the tank's other entities. Without this, Home Assistant would build a new ID, which since 2026.10 starts with the device's area (e.g. `switch.tank_mobius_tank_405f_feed_mode`).
+  - A switch that already exists keeps its ID.
 - Each pump or light is a device, identified by its serial and named by its own name, or else its model, plus the last 4 characters of the serial. Its entities are:
   - `mode` (OperationMode name; unknown values show as `unknown_<n>`, with `raw` as an attribute). Its icon shows the device type, using Material Design icons that ship with HA (no EcoTech artwork):
     - lights (PrimitiveType 1): `mdi:light-flood-down`,
