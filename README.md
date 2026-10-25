@@ -4,7 +4,7 @@ Brought to you by [Fullstack Systems](https://fullstacksystems.com).
 
 This custom integration talks directly to [EcoTech Marine](https://ecotechmarine.com/) Mobius devices (Radion lights, VorTech MP and Vectra pumps) over Bluetooth. It brings their status into Home Assistant as sensors and adds tank-wide Feed Mode, All Off and All On controls. Everything stays local: no EcoTech cloud account or phone is needed once the tank is set up in the Mobius app.
 
-![Mobius dashboard in Home Assistant: tank controls, active scene, VorTech MP40 flow, power, speed and temperatures, a Vectra return pump, Radion temperatures and device health](https://raw.githubusercontent.com/denov/home-assistant-ecotech-mobius/main/docs/images/dashboard.png)
+![Mobius dashboard in Home Assistant: tank controls with the Feed mode switch, active scene, VorTech MP40 flow, power, speed and temperatures, a Vectra return pump, Radion temperatures, device health, pump energy and supply voltage](https://raw.githubusercontent.com/denov/home-assistant-ecotech-mobius/main/docs/images/dashboard.png)
 
 ## Features
 
@@ -22,9 +22,9 @@ This custom integration talks directly to [EcoTech Marine](https://ecotechmarine
 - A device that has left the tank can be deleted from its device page
 - Designed for HACS install
 
-![Light colour channels in Home Assistant: the brightness of every channel of three Radion lights, colour coded](https://raw.githubusercontent.com/denov/home-assistant-ecotech-mobius/main/docs/images/lights.png)
+![Light colour channels in Home Assistant: one Radion's colour mix over a day, and the brightness of every channel of three Radion lights, colour coded](https://raw.githubusercontent.com/denov/home-assistant-ecotech-mobius/main/docs/images/lights.png)
 
-![History in Home Assistant: pump flow and power over a night, pump energy per day, and supply voltage of every device](https://raw.githubusercontent.com/denov/home-assistant-ecotech-mobius/main/docs/images/history.png)
+![History in Home Assistant: pump flow and power over a day, pump energy per day for a week, and supply voltage of every device](https://raw.githubusercontent.com/denov/home-assistant-ecotech-mobius/main/docs/images/history.png)
 
 Tested with VorTech MP40w G3 QD pumps, a Vectra L2 return pump and current-generation Radion lights. Other Mobius devices should work, since they share the same protocol. Please open an issue with debug logs if one doesn't.
 
