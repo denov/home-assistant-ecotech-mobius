@@ -1,0 +1,51 @@
+name: Problem or unsupported device
+description: Something doesn't work, or a device shows as Unknown or reads wrong values
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! A debug log is what usually lets us fix it. See [Debug logs](https://github.com/denov/home-assistant-ecotech-mobius#debug-logs) in the README for how to get one.
+  - type: input
+    id: version
+    attributes:
+      label: Integration version
+      placeholder: "0.4.0"
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.11.0"
+    validations:
+      required: true
+  - type: textarea
+    id: devices
+    attributes:
+      label: Devices
+      description: The model each device shows on its device page, including any `Unknown (<number>)`.
+      placeholder: |
+        2 × VorTech MP40w G3 QD
+        1 × Unknown (257), an AI Nero 3
+    validations:
+      required: true
+  - type: input
+    id: bluetooth
+    attributes:
+      label: Bluetooth
+      description: An ESPHome proxy (which board) or a local adapter.
+      placeholder: ESPHome proxy, ESP32-S3
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happens
+      description: What you expected and what you see instead, e.g. a sensor's value next to what the Mobius app shows.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Debug log
+      description: Drag the downloaded log file in here.
+    validations:
+      required: true

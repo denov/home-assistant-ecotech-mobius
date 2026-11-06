@@ -26,7 +26,7 @@ This custom integration talks directly to [EcoTech Marine](https://ecotechmarine
 
 ![History in Home Assistant: pump flow and power over a day, pump energy per day for a week, and supply voltage of every device](https://raw.githubusercontent.com/denov/home-assistant-ecotech-mobius/main/docs/images/history.png)
 
-Tested with VorTech MP40w G3 QD pumps, a Vectra L2 return pump and current-generation Radion lights. Other Mobius devices should work, since they share the same protocol. Please open an issue with debug logs if one doesn't.
+Tested with VorTech MP40w G3 QD pumps, a Vectra L2 return pump and current-generation Radion lights. AI (Aqua Illumination) Nero 3, Axis 40 and Prime 16HD devices are recognised, with support still being verified. Other Mobius devices should work, since they share the same protocol. If one doesn't, please [report it](#reporting-issues) with debug logs.
 
 ## Requirements
 
@@ -148,11 +148,33 @@ This only covers that card: the **Press** button in the entity's dialog, automat
 
 ## Reporting issues
 
-1. Go to **Settings** → **Devices & services** and open **EcoTech Mobius**.
-1. Choose **Enable debug logging**, wait a couple of minutes (or reproduce the problem), then choose **Disable debug logging** to download the log.
-1. Attach the log to your [GitHub issue](https://github.com/denov/home-assistant-ecotech-mobius/issues), with your device models.
+Open a [GitHub issue](https://github.com/denov/home-assistant-ecotech-mobius/issues/new/choose) and include:
 
-The debug log has every Bluetooth frame sent to and from your devices, which is usually what's needed to support a new model or firmware.
+- the integration version (**Settings** → **Devices & services** → **EcoTech Mobius**, or HACS) and your Home Assistant version,
+- your devices: the model each one shows on its device page, including any `Unknown (<number>)`,
+- how Home Assistant reaches them: an ESPHome proxy (which board) or a local adapter,
+- what you expected and what you see instead, e.g. a sensor's value next to what the Mobius app shows,
+- a debug log (below).
+
+### Debug logs
+
+1. Go to **Settings** → **Devices & services** and open **EcoTech Mobius**.
+1. Open the **⋮** menu and choose **Enable debug logging**.
+1. Restart the integration (**⋮** → **Reload**), so the log includes setup. Then wait at least **two polls (2–3 minutes)**, or do what goes wrong (e.g. turn on Feed mode).
+1. Choose **Disable debug logging**. The browser downloads the log.
+1. Attach the file to the issue. Don't paste it inline: it's long.
+
+The log has every Bluetooth frame sent to and from your devices, plus one decoded line per device read (model, mode, operation state, physical values). That's usually what's needed to support a new model or firmware.
+
+The log includes your devices' serial numbers and names, but no passwords or keys. You can replace the serial numbers with `XXXX` before attaching it if you prefer.
+
+If Home Assistant can't set up the integration at all, add this to `configuration.yaml`, restart, and attach the log from **Settings** → **System** → **Logs** → **Download full log**:
+
+```yaml
+logger:
+  logs:
+    custom_components.mobius: debug
+```
 
 ## How it works
 
