@@ -142,6 +142,8 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
         self._queue: list[Queued] | None = None
         # address -> GetOpCodes result, so later connections skip that round trip
         self._opcodes: dict[str, bytes] = {}
+        # model id -> state attributes its devices answer UNSUPPORTED_ATTRIBUTE for, left out of later batches
+        self._unsupported: dict[int, set[int]] = {}
         # serial -> failed reads in a row; the last reading stands in until UNAVAILABLE_AFTER_FAILURES
         self._failures: dict[str, int] = {}
         # serial -> last advert, so devices keep their entities while briefly unreachable
@@ -291,7 +293,7 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
         """Read one device: the connected one, or (with `target`) one the connected device relays to."""
         await self._send_queued(client)
         state = DeviceState(adv.serial, address, adv, read_at=time.monotonic())
-        values = await _get_tolerant(client, STATE_ATTRS, target)
+        values = await _get_tolerant(client, STATE_ATTRS, target, self._unsupported.setdefault(adv.model_id, set()))
         if (v := values.get(p.Attr.NAME)) is not None:
             state.name = p.text(v.first)
         if (v := values.get(p.Attr.PRIMITIVE_TYPE)) is not None:
@@ -325,6 +327,11 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
             else:
                 if (v := iv.get(p.Attr.INTENSITY)) is not None:
                     state.intensity = {i: p.u16(b) for i, b in v.items.items() if len(b) >= 2}
+        _LOGGER.debug(
+            "%s (%s, model %d): primitive %s, operation state %s, mode %s, error %s, physical %s",
+            adv.serial, adv.model, adv.model_id, state.primitive, state.operation_state, state.operation_mode,
+            state.error_state, state.physical,
+        )
         return state
 
     async def _read_tank(
@@ -472,16 +479,36 @@ async def _broadcast(client: MobiusClient, action, data: TankData | None) -> flo
     return time.monotonic()
 
 
-async def _get_tolerant(client: MobiusClient, attrs: list[int], target: bytes | None) -> dict[int, p.AttrValue]:
-    """One batched read; if the device rejects the batch, read the attributes one by one."""
+async def _get_tolerant(
+    client: MobiusClient, attrs: list[int], target: bytes | None, unsupported: set[int]
+) -> dict[int, p.AttrValue]:
+    """One batched read of `attrs`, less those in `unsupported`; if the device rejects it, one by one.
+
+    Attributes the device answers UNSUPPORTED_ATTRIBUTE for are added to `unsupported`, so the
+    next read's batch leaves them out and succeeds in one request.
+    """
+    wanted = [a for a in attrs if a not in unsupported]
+    if not wanted:
+        return {}
     try:
-        return await client.get_attrs(attrs, target_ipv6=target)
+        return await client.get_attrs(wanted, target_ipv6=target)
     except p.ProtocolError as err:
         _LOGGER.debug("Batched read failed (%s); reading one by one", err)
     values: dict[int, p.AttrValue] = {}
-    for attr in attrs:
+    for attr in wanted:
         try:
             values.update(await client.get_attrs([attr], target_ipv6=target))
+        except p.StatusError as err:
+            if err.status == p.Status.UNSUPPORTED_ATTRIBUTE:
+                unsupported.add(attr)
+                _LOGGER.debug("Attribute %s is unsupported; later reads leave it out", _attr_name(attr))
         except p.ProtocolError:
             continue
     return values
+
+
+def _attr_name(attr: int) -> str:
+    try:
+        return f"{p.Attr(attr).name} ({attr})"
+    except ValueError:
+        return str(attr)

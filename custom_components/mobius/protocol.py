@@ -150,11 +150,26 @@ MODELS: dict[int, str] = {
     192: "Radion XR30 G5 Pro",
     193: "Radion XR30 G5 Blue",
     195: "Radion (model 195)",  # seen on a user's tank 2026-10-17; product name unknown
+    # AI (Aqua Illumination) devices on Mobius, reported in issue #1
+    257: "AI Nero 3",
+    262: "AI Axis 40",
+    333: "AI Prime 16HD",
 }
+
+AI_PREFIX = "AI "
+LIGHT_PREFIXES = ("Radion", "AI Prime")
 
 
 class ProtocolError(Exception):
     """Malformed frame or unexpected response."""
+
+
+class StatusError(ProtocolError):
+    """The device answered, with a status other than SUCCESS."""
+
+    def __init__(self, message: str, status: int) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 def crc16(data: bytes, crc: int = 0xFFFF) -> int:
@@ -408,8 +423,13 @@ class Advert:
         return MODELS.get(self.model_id, f"Unknown ({self.model_id})")
 
     @property
+    def is_ai(self) -> bool:
+        """An AI (Aqua Illumination) device rather than an EcoTech one."""
+        return self.model.startswith(AI_PREFIX)
+
+    @property
     def is_light(self) -> bool:
-        return self.model.startswith("Radion")
+        return self.model.startswith(LIGHT_PREFIXES)
 
 
 def parse_advert(manufacturer_data: dict[int, bytes]) -> Advert | None:

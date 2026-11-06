@@ -47,3 +47,31 @@ def test_light_channels_become_percent_sensors():
     assert sensor.translation_key == "channel_royal_blue"
     assert sensor.native_value == 77.0
     assert sensor.native_unit_of_measurement == "%"
+
+
+def _physical_sensor(model_id: int, index: int, raw: int):
+    from types import SimpleNamespace
+
+    from custom_components.mobius.coordinator import DeviceState, TankData
+    from custom_components.mobius.sensor import PhysicalSensor
+
+    adv = p.Advert(model_id, "0000000TESTSN3", 0x405F, False)
+    state = DeviceState(adv.serial, "", adv, physical={index: raw})
+    coordinator = SimpleNamespace(known={adv.serial: adv}, data=TankData({adv.serial: state}))
+    data = SimpleNamespace(coordinator=coordinator, tank_device_id="tank", tank_id="tank_405f", pan_id=0x405F)
+    sensor = PhysicalSensor.__new__(PhysicalSensor)
+    PhysicalSensor.__init__(sensor, data, adv.serial, index)
+    return sensor
+
+
+def test_ai_devices_report_tenths_of_a_degree_and_millivolts():
+    pv = p.PhysicalValue
+    assert _physical_sensor(257, pv.DRIVER_TEMPERATURE, 644).native_value == 64.4
+    assert _physical_sensor(333, pv.INPUT_VOLTAGE, 24555).native_value == 24.555
+    assert _physical_sensor(42, pv.DRIVER_TEMPERATURE, 41).native_value == 41, "EcoTech devices: whole °C"
+    assert _physical_sensor(42, pv.INPUT_VOLTAGE, 31).native_value == 31
+
+
+def test_ai_devices_are_made_by_aqua_illumination():
+    assert _physical_sensor(262, p.PhysicalValue.INPUT_VOLTAGE, 0).device_info["manufacturer"] == "Aqua Illumination"
+    assert _physical_sensor(42, p.PhysicalValue.INPUT_VOLTAGE, 0).device_info["manufacturer"] == "EcoTech Marine"

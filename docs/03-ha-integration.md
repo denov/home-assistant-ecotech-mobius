@@ -32,16 +32,17 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
     - anything else: `mdi:help-circle-outline`.
   - `operation_state` and `error` (diagnostic),
   - a `problem` binary sensor,
-  - one sensor per supported PhysicalValues element the device reports (see `PHYSICAL_SENSORS`).
+  - one sensor per supported PhysicalValues element the device reports (see `PHYSICAL_SENSORS`). AI devices report driver temperature in tenths of a °C and input voltage in mV (doc 02); their sensors are scaled to °C and V (`AI_PHYSICAL_SCALES`).
   - **Lights:** one `channel_<name>` sensor per colour channel the light reports in `Intensity` (e.g. Royal Blue, UV, Cool White), in % with one decimal. Brightness and unknown ids get no sensor. These sensors show the colour mix the light is running right now.
   - **Battery voltage** is created only once it reads above 0 V. Pumps without a battery backup attached report 0 V.
   - Devices that report motor power also get an `energy` sensor (below).
 - Entities are added when a poll first reports their device or value. They are never removed while the entry is loaded.
+- AI (Aqua Illumination) devices get `Aqua Illumination` as their manufacturer; all others get `EcoTech Marine`.
 - **Removing a device:** a pump or light that the last poll didn't report (e.g. it left the tank) can be deleted from its device page. One that's still reported can't be deleted, because it would come straight back. The tank device can't be deleted either.
 
 ## Polling
 
-- The tank is polled every 60 s. Reading a device means one batched state read and one PhysicalValues read; lights (PrimitiveType 1) also get one `Intensity` read. If the device rejects the batch, the state attributes are read one by one.
+- The tank is polled every 60 s. Reading a device means one batched state read and one PhysicalValues read; lights (PrimitiveType 1) also get one `Intensity` read. If the device rejects the batch, the state attributes are read one by one. An attribute a device answers with status 7 (unsupported) is remembered for its model, so later reads of any device of that model leave it out of the batch. Remembering lasts until Home Assistant restarts.
 - **Mesh first, then direct.** Relayed reads take ~0.5 s per device and a direct connection ~2 s (measured, doc 02), so the mesh is the default.
   1. **Bridge.** Connect to the strongest advertising device of the tank; if that fails, try the next strongest. Read the bridge itself directly.
      - **Pumps bridge before lights.** A light read over a direct connection reports OperationMode 50 instead of its real mode (doc 02), so lights count as 10 dB weaker when ranking. A pump within 10 dB of the strongest light is picked first. A light still bridges when no pump is close.

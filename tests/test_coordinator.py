@@ -106,6 +106,34 @@ async def test_poll_reads_every_device(coordinator, tank):
     assert data.devices["SERIAL_A"].physical == {0: 2330}
 
 
+async def test_an_unsupported_attribute_is_left_out_of_later_batches(coordinator, tank):
+    # like the AI devices in issue #1: the batch is rejected because of one attribute
+    connect = tank.connect
+
+    async def without_mode(*args, **kw):
+        dev = await connect(*args, **kw)
+        del dev.attrs[p.Attr.OPERATION_MODE]
+        return dev
+
+    def asked_for_mode() -> int:
+        return sum(
+            p.Attr.OPERATION_MODE in {a for a, _i, _n in struct.iter_unpack("<HHH", f.payload)}
+            for dev in tank.connections for f in dev.received if f.op == p.Op.GET_ATTR_V2
+        )
+
+    with patch(f"{MOD}.establish_connection", without_mode):
+        data = await coordinator._async_update_data()
+        # the first device's batch, then its one-by-one read; the second device (same model) is spared both
+        assert asked_for_mode() == 2
+        assert data.devices["SERIAL_A"].name and data.devices["SERIAL_B"].name
+        assert data.devices["SERIAL_A"].operation_mode is None
+        await coordinator._async_update_data()
+    assert asked_for_mode() == 2, "later polls don't ask again"
+    assert all(len([f for f in d.received if f.op == p.Op.GET_ATTR_V2]) <= 3 for d in tank.connections[2:]), (
+        "one batch, PhysicalValues and the mesh list: no one-by-one reads"
+    )
+
+
 async def test_device_keeps_last_reading_through_brief_failures(coordinator, tank):
     coordinator.data = await coordinator._async_update_data()
     tank.down.add("BB:BB")

@@ -13,6 +13,7 @@ from .protocol import PhysicalValue
 
 DOMAIN = "mobius"
 MANUFACTURER = "EcoTech Marine"
+AI_MANUFACTURER = "Aqua Illumination"
 LOCAL_NAME = "MOBIUS"
 
 CONF_PAN_ID = "pan_id"
@@ -77,6 +78,13 @@ PHYSICAL_SENSORS: dict[int, tuple[str, str | None, str | None]] = {
     PhysicalValue.GALLONS_PER_HOUR: ("flow", UnitOfVolumeFlowRate.GALLONS_PER_HOUR, "volume_flow_rate"),
     PhysicalValue.MODULE_TEMPERATURE: ("module_temperature", UnitOfTemperature.CELSIUS, "temperature"),
     PhysicalValue.CLUSTER2_TEMPERATURE: ("cluster2_temperature", UnitOfTemperature.CELSIUS, "temperature"),
+}
+
+# AI devices report some PhysicalValues in other units (docs/02): element -> factor to the unit above.
+# Assumed from one user's readings (issue #1), not yet checked against raw frames.
+AI_PHYSICAL_SCALES: dict[int, float] = {
+    PhysicalValue.DRIVER_TEMPERATURE: 0.1,  # tenths of a °C
+    PhysicalValue.INPUT_VOLTAGE: 0.001,  # mV
 }
 
 # Light colour channel ids (docs/02) -> sensor key suffix. Brightness (1) is a master

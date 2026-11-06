@@ -172,3 +172,10 @@ def test_mesh_device_list():
         p.MeshDevice(prefix + bytes(range(8)), 42, "0000000TESTSN1"),
         p.MeshDevice(prefix + bytes(range(8, 16)), 149, "0000000TESTSN2"),
     ]
+
+
+def test_ai_devices_are_named_and_told_apart():
+    nero, prime, mp40 = (p.Advert(m, "S", 0, False) for m in (257, 333, 42))
+    assert (nero.model, p.Advert(262, "S", 0, False).model, prime.model) == ("AI Nero 3", "AI Axis 40", "AI Prime 16HD")
+    assert nero.is_ai and prime.is_ai and not mp40.is_ai
+    assert prime.is_light and not nero.is_light, "the Prime is a light, the Nero a pump"

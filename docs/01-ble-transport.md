@@ -27,7 +27,7 @@ How a Mobius device talks over Bluetooth Low Energy. This was worked out by watc
 
 Flags byte (format 2): bit 1 is set on current devices (clear = legacy firmware); bit 4 is set while the device reports an error. The integration doesn't use the other bits.
 
-Model ids seen on tested devices: 42 (VorTech MP40w G3 QD), 149 (Vectra L2) and 195 (a current-generation Radion). The full list the integration names is `MODELS` in `protocol.py`.
+Model ids seen on tested devices: 42 (VorTech MP40w G3 QD), 149 (Vectra L2) and 195 (a current-generation Radion). AI (Aqua Illumination) devices use Mobius too: 257 (AI Nero 3), 262 (AI Axis 40) and 333 (AI Prime 16HD) were reported by a user (issue #1). The full list the integration names is `MODELS` in `protocol.py`.
 
 ## GATT
 

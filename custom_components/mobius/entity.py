@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER
+from .const import AI_MANUFACTURER, DOMAIN, MANUFACTURER
 from .coordinator import DeviceState, MobiusCoordinator
 
 
@@ -73,7 +73,7 @@ class MobiusDeviceEntity(CoordinatorEntity[MobiusCoordinator]):
             identifiers={(DOMAIN, serial)},
             connections={(CONNECTION_BLUETOOTH, state.address)} if state and state.address else set(),
             name=device_label(serial, state, adv.model),
-            manufacturer=MANUFACTURER,
+            manufacturer=AI_MANUFACTURER if adv.is_ai else MANUFACTURER,
             model=adv.model,
             model_id=str(adv.model_id),
             serial_number=serial,

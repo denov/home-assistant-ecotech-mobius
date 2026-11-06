@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import protocol as p
-from .const import CHANNELS, OPERATION_MODES, PHYSICAL_SENSORS
+from .const import AI_PHYSICAL_SCALES, CHANNELS, OPERATION_MODES, PHYSICAL_SENSORS
 from .entity import MobiusConfigEntry, MobiusDeviceEntity, MobiusRuntimeData, MobiusTankEntity
 
 ERROR_STATES = {
@@ -148,11 +148,17 @@ class PhysicalSensor(MobiusDeviceEntity, SensorEntity):
         self._attr_device_class = SensorDeviceClass(device_class) if device_class else None
         if key == "motor_rpm":
             self._attr_icon = "mdi:fan"
+        self._scale = AI_PHYSICAL_SCALES.get(index) if data.coordinator.known[serial].is_ai else None
+        if self._scale is not None:
+            self._attr_suggested_display_precision = 1
 
     @property
-    def native_value(self) -> int | None:
+    def native_value(self) -> float | None:
         s = self.device_state
-        return s.physical.get(self._index) if s else None
+        value = s.physical.get(self._index) if s else None
+        if value is None or self._scale is None:
+            return value
+        return round(value * self._scale, 3)
 
 
 class ChannelSensor(MobiusDeviceEntity, SensorEntity):

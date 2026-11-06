@@ -185,7 +185,7 @@ class MobiusClient:
         frame = await self.request(op, p.get_attrs_payload(spec, self.wide), target_ipv6=target_ipv6)
         status, values = p.parse_get_response(frame.payload, self.wide)
         if status != p.Status.SUCCESS:
-            raise p.ProtocolError(f"get {spec} failed: {_status(status)}")
+            raise p.StatusError(f"get {spec} failed: {_status(status)}", status)
         return values
 
     async def set_attrs(
@@ -201,7 +201,7 @@ class MobiusClient:
         )
         if not frame.payload or frame.payload[0] != p.Status.SUCCESS:
             status = frame.payload[0] if frame.payload else -1
-            raise p.ProtocolError(f"set failed: {_status(status)}")
+            raise p.StatusError(f"set failed: {_status(status)}", status)
 
     async def tank_group(self) -> int:
         values = await self.get_attrs([p.Attr.GROUP_BITMAP])

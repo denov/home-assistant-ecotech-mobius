@@ -37,6 +37,8 @@ An attribute has a u16 id and holds one or more elements. Each element is a fixe
 
 The integration reads ids 5, 8, 107, 108, 104, 105, 401, 403 and 402 together in **one** Get. PhysicalValues and, for lights, Intensity are read in separate Gets. A pump answers a Get of 1500 with status 7 (unsupported attribute), which fails the whole request, so it isn't put in the shared batch.
 
+AI devices (issue #1) reject the shared batch the same way, with status 7, so at least one of its attributes is unsupported on them. Which one isn't known yet.
+
 ## PhysicalValues (101)
 
 The answer comes back as **several blocks** of the same attribute, each with its own start index, e.g. MP40 indices 1–2, 4–7 and 10–11. Unreported indices are absent, not zero.
@@ -56,6 +58,13 @@ The answer comes back as **several blocks** of the same attribute, each with its
 | 16 | second cluster temperature | °C | |
 
 The Vectra also reported temperatures. Indices 8 and 16 weren't seen; their meaning and unit are assumed.
+
+**AI devices use other units** (reported in issue #1, not yet checked against raw frames):
+
+| index | AI value | read as |
+|---|---|---|
+| 1 | 644, 876 | tenths of a °C (64.4 °C, 87.6 °C); assumed |
+| 7 | 24555 | mV (24.6 V) |
 
 The sensors the integration creates are `PHYSICAL_SENSORS` in `const.py`.
 
