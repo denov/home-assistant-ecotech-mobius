@@ -15,9 +15,13 @@
     },
     "abort": {
       "already_configured": "This tank is already set up.",
+      "all_configured": "Every Mobius tank in Bluetooth range is already set up.",
       "no_devices_found": "No Mobius tank found in Bluetooth range yet. Mobius devices only report which tank they belong to when actively scanned, which can take a few minutes after a proxy starts; try again shortly, or check that a Bluetooth proxy is near the tank.",
       "not_supported": "This Mobius device isn't part of a tank yet. Set it up in the Mobius app first.",
       "no_scan_response": "The Mobius device didn't answer an active Bluetooth scan in time. Move a Bluetooth proxy closer to the tank and try again."
+    },
+    "progress": {
+      "scan": "Scanning for Mobius tanks in Bluetooth range. This can take up to a minute."
     }
   },
   "entity": {

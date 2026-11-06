@@ -9,7 +9,9 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
   - It asks only for addresses that belong to this tank, or that it can't place yet. Once a scan response shows an address belongs to another tank, its active scan is dropped. A neighbour's tank doesn't keep our proxy busy.
 - One config entry per tank. Its unique id is the panId as 4 hex digits.
   - A discovery flow waits up to 60 s for a scan response, then aborts with `no_scan_response`.
-  - The user flow lists the tanks found, and runs an active scan if none are found yet.
+  - The user flow lists the tanks in range that aren't set up yet.
+    - If every tank in range is already set up, it aborts straight away with `all_configured`. It doesn't scan.
+    - If no tank is in range yet, it runs an active scan (up to 60 s) as a progress step, so the wizard shows it's scanning. It then lists what it found, or aborts with `no_devices_found` or `all_configured`.
 - The entry stores `devices`, a map of address → `[model id, serial]`. It is updated whenever a scan response adds or changes an address. After a restart, passive adverts are then enough to know which device is at which address.
 
 ## Devices and entities

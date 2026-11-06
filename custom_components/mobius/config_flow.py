@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from homeassistant.components import bluetooth
@@ -44,6 +45,7 @@ class MobiusConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._pan_id: int | None = None
+        self._scan: asyncio.Task[dict[int, list[p.Advert]]] | None = None
 
     async def async_step_bluetooth(self, discovery_info: bluetooth.BluetoothServiceInfoBleak) -> ConfigFlowResult:
         adv = p.parse_advert(discovery_info.manufacturer_data)
@@ -97,21 +99,34 @@ class MobiusConfigFlow(ConfigFlow, domain=DOMAIN):
         return {}
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        configured = {e.unique_id for e in self._async_current_entries()}
-
-        def new(found: dict[int, list[p.Advert]]) -> dict[int, list[p.Advert]]:
-            return {pan: devs for pan, devs in found.items() if _unique_id(pan) not in configured}
-
-        tanks = new(_tanks_in_range(self.hass))
         if user_input is not None:
             pan_id = int(user_input[CONF_PAN_ID])
             await self.async_set_unique_id(_unique_id(pan_id))
             self._abort_if_unique_id_configured()
             return self.async_create_entry(title=_title(pan_id), data={CONF_PAN_ID: pan_id})
+        found = _tanks_in_range(self.hass)
+        if not found:
+            return await self.async_step_scan()
+        return self._choose(found)
+
+    async def async_step_scan(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """No tank seen yet: an active scan, shown as progress so the wizard doesn't seem stuck."""
+        if self._scan is None:
+            self._scan = self.hass.async_create_task(self._async_active_scan())
+        if not self._scan.done():
+            return self.async_show_progress(step_id="scan", progress_action="scan", progress_task=self._scan)
+        return self.async_show_progress_done(next_step_id="scanned")
+
+    async def async_step_scanned(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        assert self._scan is not None
+        return self._choose(self._scan.result())
+
+    def _choose(self, found: dict[int, list[p.Advert]]) -> ConfigFlowResult:
+        """The tanks in range that aren't set up yet, to pick one from."""
+        configured = {e.unique_id for e in self._async_current_entries()}
+        tanks = {pan: devs for pan, devs in found.items() if _unique_id(pan) not in configured}
         if not tanks:
-            tanks = new(await self._async_active_scan())
-        if not tanks:
-            return self.async_abort(reason="no_devices_found")
+            return self.async_abort(reason="all_configured" if found else "no_devices_found")
         options = {str(pan): f"{_title(pan)}: {_summary(devs)}" for pan, devs in tanks.items()}
         return self.async_show_form(
             step_id="user", data_schema=vol.Schema({vol.Required(CONF_PAN_ID): vol.In(options)})
