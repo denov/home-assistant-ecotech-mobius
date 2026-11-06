@@ -1,6 +1,7 @@
 """The Feed mode switch: on starts Feed mode, off resumes the schedule."""
 
 import struct
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -11,23 +12,30 @@ from custom_components.mobius import migrate_feed_mode_entities, protocol as p
 from custom_components.mobius.client import SceneState
 from custom_components.mobius.const import CONF_PAN_ID, DOMAIN
 from custom_components.mobius.coordinator import DeviceState, TankData
-from custom_components.mobius.switch import FeedModeSwitch
+from custom_components.mobius.switch import ASSUME_SECONDS, FeedModeSwitch
 
 from .test_client import FakeDevice
 
 SERIAL = "0000000TESTSN1"
 
 
-def tank_data(scene: SceneState) -> TankData:
+FEED = SceneState(p.SceneId.FEED_MODE, 500, 600)
+NONE = SceneState(p.SceneId.EMPTY, 0, 3600)
+
+
+def tank_data(scene: SceneState, read_at: float = 0.0) -> TankData:
     adv = p.Advert(42, SERIAL, 0x405F, False)
-    return TankData({SERIAL: DeviceState(SERIAL, "AA:AA", adv, scene=scene)})
+    return TankData({SERIAL: DeviceState(SERIAL, "AA:AA", adv, scene=scene, read_at=read_at)})
 
 
-def make_switch():
-    coordinator = SimpleNamespace(data=None, async_tank_command=AsyncMock())
+def make_switch(acked_at: float | None = None):
+    """The switch; its commands are acknowledged at `acked_at` (default: now)."""
+    command = AsyncMock(side_effect=lambda *_a: time.monotonic() if acked_at is None else acked_at)
+    coordinator = SimpleNamespace(data=None, async_tank_command=command)
     data = SimpleNamespace(coordinator=coordinator, tank_id="tank_405f", pan_id=0x405F)
     switch = FeedModeSwitch.__new__(FeedModeSwitch)
     FeedModeSwitch.__init__(switch, data)
+    switch.async_write_ha_state = lambda: None
     return switch, coordinator
 
 
@@ -41,6 +49,40 @@ def test_on_while_feed_mode_runs():
     coordinator.data = tank_data(SceneState(p.SceneId.EMPTY, 0, 3600))
     assert switch.is_on is False
     assert switch.available
+
+
+async def test_shows_the_command_straight_away():
+    switch, coordinator = make_switch()
+    coordinator.data = tank_data(NONE)
+    await switch.async_turn_on()
+    assert switch.is_on is True, "no poll needed to show Feed mode on"
+    coordinator.data = tank_data(FEED)
+    await switch.async_turn_off()
+    assert switch.is_on is False
+
+
+async def test_a_reading_from_before_the_command_does_not_count():
+    switch, coordinator = make_switch()
+    before = time.monotonic()
+    await switch.async_turn_off()
+    coordinator.data = tank_data(FEED, read_at=before)  # e.g. read earlier in the same poll
+    assert switch.is_on is False
+
+
+async def test_a_reading_after_the_command_decides():
+    switch, coordinator = make_switch()
+    await switch.async_turn_on()
+    coordinator.data = tank_data(FEED, read_at=time.monotonic())
+    assert switch.is_on is True
+    coordinator.data = tank_data(NONE, read_at=time.monotonic())
+    assert switch.is_on is False, "the devices say Feed mode isn't running"
+
+
+async def test_the_command_result_expires_without_a_newer_reading():
+    switch, coordinator = make_switch(acked_at=time.monotonic() - ASSUME_SECONDS - 1)
+    await switch.async_turn_on()
+    coordinator.data = tank_data(NONE)
+    assert switch.is_on is False, "back to the last reported state"
 
 
 async def sent_by(command) -> p.Frame:

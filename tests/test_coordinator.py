@@ -125,20 +125,90 @@ async def test_failed_disconnect_keeps_the_reading(coordinator, tank):
     assert set(data.devices) == {"SERIAL_A", "SERIAL_B"}
 
 
-async def test_command_does_not_wait_for_the_whole_poll(coordinator, tank):
-    # the bridge's (B's) connection hangs; a button press must go out before the poll moves on to A
+def _first(dev, *ops: int) -> int:
+    """Index of the first frame the device received with one of `ops`."""
+    return next(i for i, f in enumerate(dev.received) if f.op in ops)
+
+
+SETS = (p.Op.SET_ATTR_V1, p.Op.SET_ATTR_V2)
+GETS = (p.Op.GET_ATTR_V1, p.Op.GET_ATTR_V2)
+
+
+async def test_command_goes_out_over_the_polls_connection(coordinator, tank):
+    coordinator.data = await coordinator._async_update_data()  # the tank group is known
+    tank.attempts.clear()
+    tank.connections.clear()
+    # the next poll is still connecting to the bridge (B) when the button is pressed
     tank.gate["BB:BB"] = asyncio.Event()
     poll = asyncio.create_task(coordinator._async_update_data())
     await asyncio.sleep(0)
     with patch.object(coordinator, "async_request_refresh"):
-        command = asyncio.create_task(
-            coordinator.async_tank_command("feed", lambda c, g: c.start_scene(p.SceneId.FEED_MODE, g))
-        )
+        command = asyncio.create_task(_feed(coordinator))
         await asyncio.sleep(0)
         tank.gate["BB:BB"].set()
         await asyncio.gather(poll, command)
-    # the strongest device (B) carries the command, between B's read and A's direct read
-    assert tank.log == [("BB:BB", "read"), ("BB:BB", "command"), ("AA:AA", "read")]
+    assert tank.attempts == ["BB:BB", "AA:AA"], "no connection of its own"
+    bridge = tank.connections[0]
+    assert _first(bridge, *SETS) < _first(bridge, *GETS), "before the bridge's own read"
+
+
+async def test_command_waits_for_at_most_one_device_read(coordinator, tank):
+    read_device = coordinator._read_device
+    reading = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_first_read(client, *args, **kw):
+        state = await read_device(client, *args, **kw)
+        if not reading.is_set():  # the bridge's own read
+            reading.set()
+            await release.wait()
+        return state
+
+    with (
+        patch(f"{MOD}.establish_connection", _mesh_tank(tank, {"SERIAL_A", "SERIAL_V"})),
+        patch.object(coordinator, "_read_device", slow_first_read),
+        patch.object(coordinator, "async_request_refresh"),
+    ):
+        poll = asyncio.create_task(coordinator._async_update_data())
+        await reading.wait()
+        command = asyncio.create_task(_feed(coordinator))
+        await asyncio.sleep(0)
+        release.set()
+        await asyncio.gather(poll, command)
+    assert tank.attempts == ["BB:BB"]
+    bridge = tank.connections[0]
+    assert _first(bridge, *GETS) < _first(bridge, *SETS) < _first(bridge, p.Op.COAP_REQUEST), (
+        "after the bridge's read, before the first relayed one"
+    )
+
+
+async def test_command_follows_the_poll_to_its_next_connection(coordinator, tank):
+    # the poll's bridge (B) fails to connect while the command waits for it; the poll moves on to A
+    tank.down.add("BB:BB")
+    tank.gate["BB:BB"] = asyncio.Event()
+    poll = asyncio.create_task(coordinator._async_update_data())
+    await asyncio.sleep(0)
+    with patch.object(coordinator, "async_request_refresh"):
+        command = asyncio.create_task(_feed(coordinator))
+        await asyncio.sleep(0)
+        tank.gate["BB:BB"].set()
+        await asyncio.gather(poll, command)
+    # B, then A (the command and A's read in one connection), then the poll's direct retry of B
+    assert tank.attempts == ["BB:BB", "AA:AA", "BB:BB"]
+    assert tank.log == [("AA:AA", "command")]
+
+
+async def test_command_does_not_wait_for_the_refresh(coordinator, tank):
+    never = asyncio.Event()
+
+    async def slow_refresh():
+        await never.wait()
+
+    with patch.object(coordinator, "async_request_refresh", slow_refresh):
+        before = time.monotonic()
+        acked_at = await asyncio.wait_for(_feed(coordinator), 1)
+    assert before <= acked_at <= time.monotonic()
+    never.set()
 
 
 async def test_connects_once_per_attempt(coordinator, tank):

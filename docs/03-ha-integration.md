@@ -55,7 +55,7 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
 - **Keep the last reading.** A device that fails to read, or isn't seen, keeps its last reading. After **3** failed polls in a row its entities go unavailable. The next successful read brings them back.
 - **Fail fast.** When **2 connection attempts in a row** fail, anywhere in the integration (poll or command), the integration treats the radio path (proxy or adapter) as down. The current poll then stops making connections: the devices it hasn't read count as failed reads, as above. Every poll still makes at least one attempt, so recovery is noticed on the next poll.
 - **One connection at a time.** The integration holds one BLE connection at a time, under a lock.
-  - A poll takes the lock per connection (the bridge, then each direct fallback), so a command waits for at most one of them.
+  - A poll takes the lock per connection (the bridge, then each direct fallback). A command doesn't wait for it: it uses the poll's connection (see Commands).
   - Each attempt is a single connect; there's no retry inside a poll.
   - A failed disconnect doesn't lose the reading.
   - The GetOpCodes result is cached per device after the first connection, so later connections skip that round trip.
@@ -67,11 +67,15 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
   - Resume schedule and Feed mode off set `OperationState = 3` (Schedule).
   - The tank group comes from the last poll, or is read from the device if the integration has none yet.
 - The command tries the device with the strongest signal first, then the next strongest. It stops after 2 connection failures in a row, counting failures from polls just before it. So with a radio path that is down, a press makes one attempt.
-- **A command goes ahead of polling.** It waits for at most the one read that is already under way. It then holds the connection lock for all of its attempts, so poll reads can't run in between.
+- **A command goes ahead of polling.**
+  - While a poll's connection is open, or being opened, the command is sent over that connection instead of a new one. The poll sends it before its next device read, so the command waits for at most one device read and never for a connect of its own.
+  - When no poll connection is open, the command connects on its own. It holds the connection lock for all of its attempts, so poll reads can't run in between.
+  - If the poll's connection fails before the command is sent, the command connects on its own too.
 - Failure raises `HomeAssistantError("Couldn't <what>: <reason>")`, which the UI shows.
-- Success triggers a refresh, so the scene sensors update.
+- Success triggers a refresh, so the scene sensors update. The command returns as soon as the device has acknowledged it; it doesn't wait for that refresh.
 - If the device reports no tank group (0), the command fails rather than reaching only the connected device: a Set without a group isn't a broadcast.
 - The switch and buttons are always available, because commands don't depend on the last poll. The switch's state is unknown until a poll reads the scene.
+- **The switch shows the new state straight away.** Once the device acknowledges a command, the switch shows on (or off) without waiting for a poll. It shows what the devices report again once a device has been read after the command. A reading from before the command, even in the same poll, doesn't count. If no device is read after the command within 120 s, the switch goes back to the last reported state.
 
 ## Energy
 
