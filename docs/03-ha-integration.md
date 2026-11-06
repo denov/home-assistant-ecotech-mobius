@@ -42,7 +42,7 @@ What `custom_components/mobius` does, built on the protocol in [01](01-ble-trans
 
 ## Polling
 
-- The tank is polled every 60 s. Reading a device means one batched state read and one PhysicalValues read; lights (PrimitiveType 1) also get one `Intensity` read. If the device rejects the batch, the state attributes are read one by one. An attribute a device answers with status 7 (unsupported) is remembered for its model, so later reads of any device of that model leave it out of the batch. Remembering lasts until Home Assistant restarts.
+- The tank is polled every 60 s. Reading a device means one batched state read and one PhysicalValues read; lights (PrimitiveType 1) also get one `Intensity` read. If the device rejects the batch, the state attributes are read one by one. An attribute a device answers with status 7 (unsupported) is remembered for its model, so later reads of any device of that model leave it out of the batch. The entry stores these as `unsupported` (model id → attribute ids), so they survive restarts. Removing and re-adding the integration clears them, e.g. after a firmware update adds an attribute.
 - **Mesh first, then direct.** Relayed reads take ~0.5 s per device and a direct connection ~2 s (measured, doc 02), so the mesh is the default.
   1. **Bridge.** Connect to the strongest advertising device of the tank; if that fails, try the next strongest. Read the bridge itself directly.
      - **Pumps bridge before lights.** A light read over a direct connection reports OperationMode 50 instead of its real mode (doc 02), so lights count as 10 dB weaker when ranking. A pump within 10 dB of the strongest light is picked first. A light still bridges when no pump is close.

@@ -13,7 +13,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mobius import protocol as p
-from custom_components.mobius.const import CONF_PAN_ID, DOMAIN
+from custom_components.mobius.const import CONF_PAN_ID, CONF_UNSUPPORTED, DOMAIN
 from custom_components.mobius.coordinator import (
     ABORT_AFTER_CONNECT_FAILURES,
     UNAVAILABLE_AFTER_FAILURES,
@@ -132,6 +132,13 @@ async def test_an_unsupported_attribute_is_left_out_of_later_batches(coordinator
     assert all(len([f for f in d.received if f.op == p.Op.GET_ATTR_V2]) <= 3 for d in tank.connections[2:]), (
         "one batch, PhysicalValues and the mesh list: no one-by-one reads"
     )
+
+    # after a restart (a fresh coordinator on the same entry) the first poll doesn't ask either
+    assert coordinator.config_entry.data[CONF_UNSUPPORTED] == {"42": [p.Attr.OPERATION_MODE]}
+    restarted = MobiusCoordinator(coordinator.hass, coordinator.config_entry, PAN)
+    with patch(f"{MOD}.establish_connection", without_mode):
+        await restarted._async_update_data()
+    assert asked_for_mode() == 2
 
 
 async def test_device_keeps_last_reading_through_brief_failures(coordinator, tank):

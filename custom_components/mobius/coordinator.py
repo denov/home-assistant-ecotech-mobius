@@ -21,7 +21,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from . import protocol as p
 from .client import MobiusClient, SceneState
-from .const import CONF_DEVICES, LOCAL_NAME, SCAN_INTERVAL_SECONDS, STALE_ADVERT_SECONDS
+from .const import CONF_DEVICES, CONF_UNSUPPORTED, LOCAL_NAME, SCAN_INTERVAL_SECONDS, STALE_ADVERT_SECONDS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -142,8 +142,13 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
         self._queue: list[Queued] | None = None
         # address -> GetOpCodes result, so later connections skip that round trip
         self._opcodes: dict[str, bytes] = {}
-        # model id -> state attributes its devices answer UNSUPPORTED_ATTRIBUTE for, left out of later batches
-        self._unsupported: dict[int, set[int]] = {}
+        # model id -> state attributes its devices answer UNSUPPORTED_ATTRIBUTE for, left out of later
+        # batches; kept in the entry, so a restart doesn't pay the one-by-one reads again
+        self._unsupported: dict[int, set[int]] = {
+            int(model): set(attrs) for model, attrs in entry.data.get(CONF_UNSUPPORTED, {}).items()
+        }
+        for model, attrs in self._unsupported.items():
+            _LOGGER.debug("Model %d doesn't support %s", model, ", ".join(map(_attr_name, sorted(attrs))))
         # serial -> failed reads in a row; the last reading stands in until UNAVAILABLE_AFTER_FAILURES
         self._failures: dict[str, int] = {}
         # serial -> last advert, so devices keep their entities while briefly unreachable
@@ -197,6 +202,12 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
         entry = self.config_entry
         devices = {addr: [a.model_id, a.serial] for addr, a in self.adverts.items()}
         self.hass.config_entries.async_update_entry(entry, data={**entry.data, CONF_DEVICES: devices})
+
+    @callback
+    def _save_unsupported(self) -> None:
+        entry = self.config_entry
+        saved = {str(model): sorted(attrs) for model, attrs in self._unsupported.items() if attrs}
+        self.hass.config_entries.async_update_entry(entry, data={**entry.data, CONF_UNSUPPORTED: saved})
 
     @callback
     def advertised(self) -> dict[str, tuple[bluetooth.BluetoothServiceInfoBleak, p.Advert]]:
@@ -293,7 +304,11 @@ class MobiusCoordinator(DataUpdateCoordinator[TankData]):
         """Read one device: the connected one, or (with `target`) one the connected device relays to."""
         await self._send_queued(client)
         state = DeviceState(adv.serial, address, adv, read_at=time.monotonic())
-        values = await _get_tolerant(client, STATE_ATTRS, target, self._unsupported.setdefault(adv.model_id, set()))
+        unsupported = self._unsupported.setdefault(adv.model_id, set())
+        known = len(unsupported)
+        values = await _get_tolerant(client, STATE_ATTRS, target, unsupported)
+        if len(unsupported) != known:
+            self._save_unsupported()
         if (v := values.get(p.Attr.NAME)) is not None:
             state.name = p.text(v.first)
         if (v := values.get(p.Attr.PRIMITIVE_TYPE)) is not None:

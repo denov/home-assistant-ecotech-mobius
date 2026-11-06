@@ -19,6 +19,8 @@ LOCAL_NAME = "MOBIUS"
 CONF_PAN_ID = "pan_id"
 # address -> [model id, serial] of the tank's devices, learned from scan responses
 CONF_DEVICES = "devices"
+# model id -> state attributes its devices answer UNSUPPORTED_ATTRIBUTE for, left out of later batches
+CONF_UNSUPPORTED = "unsupported"
 
 SCAN_INTERVAL_SECONDS = 60
 # a device that hasn't advertised for this long is left out of polls
